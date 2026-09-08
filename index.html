@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>考研英语录题格式转换工具</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部标题区 -->
+        <header class="header">
+            <div class="header-left">
+                <h1>📝 考研英语录题格式转换工具</h1>
+                <p class="subtitle">智能拆分 · 分题型编辑 · 实时预览 · 一键导出Word</p>
+            </div>
+            <div class="header-right">
+                <div class="paper-type-switch">
+                    <label class="switch-label">
+                        <input type="radio" name="paperType" value="yingyi" checked onchange="switchPaperType('yingyi')">
+                        <span>英一</span>
+                    </label>
+                    <label class="switch-label">
+                        <input type="radio" name="paperType" value="yinger" onchange="switchPaperType('yinger')">
+                        <span>英二</span>
+                    </label>
+                </div>
+                <p class="subtitle-badge">✨ 纯前端版本</p>
+            </div>
+        </header>
+
+        <!-- 标签页导航 -->
+        <nav class="tabs" role="tablist">
+            <button class="tab-btn active" data-tab="import">📥 整卷导入</button>
+            <button class="tab-btn" data-tab="cloze">1️⃣ 完形填空</button>
+            <button class="tab-btn" data-tab="reading">2️⃣ 阅读理解</button>
+            <button class="tab-btn" data-tab="partb">3️⃣ 新题型</button>
+            <button class="tab-btn" data-tab="translation">4️⃣ 翻译</button>
+            <button class="tab-btn" data-tab="writing-a">5️⃣ 小作文</button>
+            <button class="tab-btn" data-tab="writing-b">6️⃣ 大作文</button>
+        </nav>
+
+        <!-- ========== 整卷导入 ========== -->
+        <div class="tab-content active" id="tab-import">
+            <div class="import-page">
+                <div class="import-section card">
+                    <div class="section-header">
+                        <h2>📋 试题原文</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizePunct('exam-text', 'english')">🔧 规范英文标点</button>
+                    </div>
+                    <textarea id="exam-text" placeholder="请粘贴整卷试题文本，包含：&#10;Section I Use of English&#10;Section II Reading Comprehension&#10;Part A / Text 1-4&#10;Part B&#10;Part C（翻译）&#10;Section III Writing&#10;Part A / Part B"></textarea>
+                </div>
+                <div class="import-section card">
+                    <div class="section-header">
+                        <h2>📝 答案解析</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizePunct('answer-text', 'chinese')">🔧 规范中文标点</button>
+                    </div>
+                    <textarea id="answer-text" placeholder="请粘贴答案解析文本，包含：&#10;各题型的答案和解析&#10;【试题解析】【答案】【解析】等标记&#10;写作部分的【参考范文】【参考译文】"></textarea>
+                </div>
+                <div class="import-actions">
+                    <button class="btn btn-primary btn-lg" id="btn-parse">🚀 智能拆分</button>
+                    <button class="btn btn-secondary" id="btn-clear-import">🗑️ 清空</button>
+                    <div class="parse-status" id="parse-status"></div>
+                </div>
+                <div class="import-actions">
+                    <button class="btn btn-success" id="btn-export-full">📄 导出整卷Word</button>
+                </div>
+                <div class="parse-stats card" id="parse-stats"></div>
+            </div>
+        </div>
+
+        <!-- ========== 完形填空 ========== -->
+        <div class="tab-content" id="tab-cloze">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 完形填空编辑</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeClozePunct()">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>文章全文（空位数字自动识别加下划线）</label>
+                        <div class="textarea-hint">💡 支持特殊标记：<code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="cloze-article" rows="8" placeholder="输入完形文章，例如：&#10;Humans are unique in their 1 to sweat...&#10;（1-20 范围的独立数字会自动加下划线）"></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>题目选项（每行一题，格式：题号 A.xxx B.xxx C.xxx D.xxx）</label>
+                        <textarea id="cloze-options" rows="8" placeholder="每行一题，例如：&#10;1 A. enhanced B. distracted C. amused D. motivated&#10;2 A. break B. maintain C. lose D. regain"></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>答案（20个字母连写）</label>
+                        <input type="text" id="cloze-answer" placeholder="例如：BDCABADCADBACDBACBDC">
+                    </div>
+
+                    <div class="field-group">
+                        <label>解析（每行一题，格式：题号|解析内容）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="cloze-explanation" rows="6" placeholder="每行一题，例如：&#10;1|本题考查动词辨析...&#10;2|本题考查动词辨析..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('cloze')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="cloze-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('cloze')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 阅读理解 ========== -->
+        <div class="tab-content" id="tab-reading">
+            <div class="reading-selector card">
+                <label>选择Text：</label>
+                <div class="text-btns">
+                    <button class="text-btn active" data-text="0">Text 1</button>
+                    <button class="text-btn" data-text="1">Text 2</button>
+                    <button class="text-btn" data-text="2">Text 3</button>
+                    <button class="text-btn" data-text="3">Text 4</button>
+                </div>
+            </div>
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 阅读理解编辑</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeReadingPunct()">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>文章全文</label>
+                        <div class="textarea-hint">💡 支持 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="reading-article" rows="8" placeholder="输入阅读理解文章..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>题目（题干+选项分行写）</label>
+                        <textarea id="reading-questions" rows="12" placeholder="每题格式：&#10;21. According to the first paragraph...&#10;A. 选项A内容&#10;B. 选项B内容&#10;C. 选项C内容&#10;D. 选项D内容&#10;22. ..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>答案解析（格式：题号|答案|解析）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="reading-answers" rows="7" placeholder="例如：&#10;21|C|根据第一段...&#10;22|A|文章第二段指出...&#10;23|D|...&#10;24|B|...&#10;25|C|..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('reading')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="reading-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('reading')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 新题型 ========== -->
+        <div class="tab-content" id="tab-partb">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 新题型编辑</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizePartbPunct()">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>题型类型</label>
+                        <select id="partb-type" onchange="updatePreview('partb')">
+                            <option value="小标题">小标题</option>
+                            <option value="七选五">七选五</option>
+                        </select>
+                    </div>
+
+                    <div class="field-group">
+                        <label>选项（A-G，每行一个，5题自动复用）</label>
+                        <textarea id="partb-options" rows="7" placeholder="每行一个选项：&#10;A You should make plans...&#10;B Seek professional help...&#10;C ...&#10;D ...&#10;E ...&#10;F ...&#10;G ..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>起始题号（改第一题，后面自动+1）</label>
+                        <div class="inline-inputs">
+                            <input type="number" id="partb-start-qnum" value="41" min="1" max="99" onchange="updatePartbQnums()">
+                            <span class="input-hint">共5题 (41-45)</span>
+                        </div>
+                    </div>
+
+                    <div class="field-group">
+                        <label>文章内容</label>
+                        <div class="textarea-hint">💡 支持 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="partb-article" rows="8" placeholder="输入文章内容..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>答案解析（格式：题号|答案|解析）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="partb-answers" rows="6" placeholder="格式：题号|答案|解析&#10;41|G|本段主要讲...&#10;42|C|..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('partb')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="partb-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('partb')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 翻译 ========== -->
+        <div class="tab-content" id="tab-translation">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 翻译编辑</h2>
+                        <div class="panel-actions">
+                            <label class="mini-switch">
+                                <input type="radio" name="transType" value="yingyi" checked onchange="switchTranslationType('yingyi')">
+                                <span>英一(5句)</span>
+                            </label>
+                            <label class="mini-switch">
+                                <input type="radio" name="transType" value="yinger" onchange="switchTranslationType('yinger')">
+                                <span>英二(整段)</span>
+                            </label>
+                            <button class="btn btn-secondary btn-sm" onclick="normalizeTranslationPunct()">🔧 规范标点</button>
+                        </div>
+                    </div>
+
+                    <!-- 英一模式 -->
+                    <div id="trans-yingyi">
+                        <div class="field-group">
+                            <label>文章全文</label>
+                            <div class="textarea-hint">💡 划线句用 <code>__句子__</code> 标记，或在下方单独列出</div>
+                            <textarea id="translation-article" rows="6" placeholder="输入翻译文章全文..."></textarea>
+                        </div>
+
+                        <div class="field-group">
+                            <label>划线句（每行一个，格式：题号|句子内容）</label>
+                            <textarea id="translation-sentences" rows="5" placeholder="每行一个划线句：&#10;46|the role of the media in such difficult circumstances&#10;47|whether the Government should increase the financing of pure science&#10;48|...&#10;49|...&#10;50|..."></textarea>
+                        </div>
+
+                        <div class="field-group">
+                            <label>参考译文（每行一个，格式：题号|译文）</label>
+                            <textarea id="translation-trans" rows="5" placeholder="每行一个译文：&#10;46|在如此困难的情况下谈论媒体的作用...&#10;47|政府是否应该增加对纯科学的资助..."></textarea>
+                        </div>
+
+                        <div class="field-group">
+                            <label>解析（每行一个，格式：题号|解析）</label>
+                            <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                            <textarea id="translation-analysis" rows="5" placeholder="每行一个解析：&#10;46|本句为复合句，主干是...&#10;47|本句主语是whether引导的从句..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- 英二模式 -->
+                    <div id="trans-yinger" style="display:none;">
+                        <div class="field-group">
+                            <label>原文（整段翻译）</label>
+                            <div class="textarea-hint">💡 支持 <code>__下划线__</code> <code>**加粗**</code></div>
+                            <textarea id="yinger-source" rows="8" placeholder="输入英二翻译原文..."></textarea>
+                        </div>
+
+                        <div class="field-group">
+                            <label>参考译文</label>
+                            <textarea id="yinger-translation" rows="8" placeholder="输入参考译文..."></textarea>
+                        </div>
+
+                        <div class="field-group">
+                            <label>解析</label>
+                            <div class="textarea-hint">💡 可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                            <textarea id="yinger-analysis" rows="6" placeholder="输入翻译解析..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('translation')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="translation-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('translation')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 小作文 ========== -->
+        <div class="tab-content" id="tab-writing-a">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 小作文编辑</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeWritingPunct('a')">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>题目原文（Directions）</label>
+                        <div class="textarea-hint">💡 支持 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="writing-a-directions" rows="5" placeholder="输入小作文题目要求..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>参考范文</label>
+                        <textarea id="writing-a-essay" rows="10" placeholder="输入参考范文..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>参考译文</label>
+                        <textarea id="writing-a-translation" rows="7" placeholder="输入参考译文..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('writing-a')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="writing-a-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('writing_a')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 大作文 ========== -->
+        <div class="tab-content" id="tab-writing-b">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 大作文编辑</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeWritingPunct('b')">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>题目原文（Directions）</label>
+                        <div class="textarea-hint">💡 支持 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="writing-b-directions" rows="5" placeholder="输入大作文题目要求..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>参考范文</label>
+                        <textarea id="writing-b-essay" rows="12" placeholder="输入参考范文..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>参考译文</label>
+                        <textarea id="writing-b-translation" rows="10" placeholder="输入参考译文..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('writing-b')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="writing-b-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('writing_b')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- CDN 依赖 -->
+    <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <!-- 工具模块 -->
+    <script src="js/formatter.js"></script>
+    <script src="js/parser.js"></script>
+    <script src="js/punc.js"></script>
+    <script src="js/docx-gen.js"></script>
+
+    <!-- 主逻辑 -->
+    <script src="js/app.js"></script>
+</body>
+</html>
