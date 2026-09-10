@@ -650,6 +650,99 @@ body {
     font-weight: 600;
 }
 
+/* ========== 月测模式特有样式 ========== */
+
+/* 模式切换 */
+.mode-switch {
+    display: flex;
+    background: #f1f5f9;
+    border-radius: 20px;
+    padding: 3px;
+}
+
+.mode-switch .switch-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 16px;
+    border-radius: 18px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #64748b;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.mode-switch .switch-label input {
+    display: none;
+}
+
+.mode-switch .switch-label:has(input:checked) {
+    background: #8b5cf6;
+    color: #ffffff;
+    font-weight: 500;
+    box-shadow: 0 1px 3px rgba(139, 92, 246, 0.3);
+}
+
+.mode-switch .switch-label:hover:not(:has(input:checked)) {
+    color: #334155;
+}
+
+/* 词汇题子标签 */
+.subtabs {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.subtabs > label {
+    font-weight: 500;
+    color: #475569;
+    font-size: 14px;
+}
+
+.subtab-btns {
+    display: flex;
+    gap: 8px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 4px;
+}
+
+.subtab-btn {
+    padding: 6px 16px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #64748b;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    white-space: nowrap;
+}
+
+.subtab-btn:hover {
+    color: #334155;
+}
+
+.subtab-btn.active {
+    background: #8b5cf6;
+    color: #ffffff;
+    box-shadow: 0 1px 3px rgba(139, 92, 246, 0.3);
+}
+
+/* 月测模式下标签页激活色调整（紫色调） */
+.yuece-tabs .tab-btn.active {
+    color: #8b5cf6;
+}
+
+.yuece-tabs .tab-btn.active::after {
+    background: #8b5cf6;
+}
+
 /* ========== 响应式 ========== */
 @media (max-width: 1024px) {
     .container {
@@ -706,3 +799,25 @@ body {
         flex-wrap: wrap;
     }
 }
+
+/* ========== 页脚 ========== */
+.footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+}
+
+.footer p {
+    font-size: 13px;
+    color: #94a3b8;
+    font-weight: 400;
+    letter-spacing: 0.3px;
+}
+
+.footer p span {
+    color: #3b82f6;
+    font-weight: 500;
+}
+
+

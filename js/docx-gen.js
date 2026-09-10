@@ -142,6 +142,7 @@ const DocxGen = (function() {
     function writeClozeArticle(children, article) {
         // 写入完形文章，处理空位下划线和标记
         const lines = article.split('\n');
+        let clozeCounter = 0;  // 空位序号从1开始顺延重排
 
         lines.forEach(line => {
             const stripped = line.trim();
@@ -160,48 +161,29 @@ const DocxGen = (function() {
                 const bold = token.bold;
                 const underline = token.underline;
 
-                // 检查空位数字
-                const clozePattern = /(^|\s)([1-9]|1[0-9]|20)(?=\s|$|[,.!?;:'")])/g;
+                // 空位识别：仅识别 __数字__ 标记
+                // parseMarks 会把 __数字__ 拆成单独的 underline token（内容为 " 数字 " 或 "数字"）
+                // 但如果数字两侧有空格被剥离到外面，数字本身是纯 underline token
+                // 最稳妥的方式：在原始行上先匹配 __数字__，再逐段生成 run
+                // 这里简化处理：若 token 是纯 underline 且内容匹配 "数字" 格式（两侧可能带空格），则视为空位
+                const isClozeBlank = underline && /^\s*\d+\s*$/.test(text) && !bold;
 
-                let lastEnd = 0;
-                let m;
-                while ((m = clozePattern.exec(text)) !== null) {
-                    // 非数字部分
-                    if (m.index > lastEnd) {
-                        const runText = text.substring(lastEnd, m.index);
-                        const options = { text: runText, font: 'SimSun' };
-                        if (bold) options.bold = true;
-                        if (underline) options.underline = { type: UnderlineType.SINGLE };
-                        para.addChildElement(new TextRun(options));
-                    }
-
-                    // 空格 + 数字
-                    const space = m[1];
-                    const num = m[2];
-                    if (space) {
-                        const opts = { text: space, font: 'SimSun' };
-                        if (bold) opts.bold = true;
-                        para.addChildElement(new TextRun(opts));
-                    }
-                    // 数字加下划线
-                    const numOpts = {
-                        text: num,
+                if (isClozeBlank) {
+                    clozeCounter += 1;
+                    const blankOpts = {
+                        text: ` ${clozeCounter} `,
                         font: 'SimSun',
                         underline: { type: UnderlineType.SINGLE },
                     };
-                    if (bold) numOpts.bold = true;
-                    para.addChildElement(new TextRun(numOpts));
-
-                    lastEnd = m.index + m[0].length;
+                    para.addChildElement(new TextRun(blankOpts));
+                    return;
                 }
 
-                // 剩余部分
-                if (lastEnd < text.length) {
-                    const opts = { text: text.substring(lastEnd), font: 'SimSun' };
-                    if (bold) opts.bold = true;
-                    if (underline) opts.underline = { type: UnderlineType.SINGLE };
-                    para.addChildElement(new TextRun(opts));
-                }
+                // 非空位 token 直接输出
+                const opts = { text, font: 'SimSun' };
+                if (bold) opts.bold = true;
+                if (underline) opts.underline = { type: UnderlineType.SINGLE };
+                para.addChildElement(new TextRun(opts));
             });
 
             children.push(para);
@@ -407,7 +389,7 @@ const DocxGen = (function() {
 
             // 子题
             const para = new Paragraph({});
-            para.addChildElement(new TextRun({ text: `【${idx + 1}】【解答题】(${qnum}) `, font: 'SimSun' }));
+            para.addChildElement(new TextRun({ text: `【${idx + 1}】【复合题】(${qnum}) `, font: 'SimSun' }));
             para.addChildElement(new TextRun({
                 text: sentText,
                 font: 'SimSun',
@@ -574,6 +556,208 @@ const DocxGen = (function() {
         }
     }
 
+    // ========== 语法题（月测） ==========
+    function buildGrammar(children, data, answers, sectionNum) {
+        sectionNum = sectionNum || 1;
+        answers = answers || {};
+        const questions = data.questions || [];
+
+        addHeading(children, `${sectionNum}、【复合题】【语法题】`);
+
+        questions.forEach((q, idx) => {
+            const qnum = q.qnum || 0;
+            const stem = q.stem || '';
+            const options = q.options || {};
+            const optionOrder = q.option_order || q.optionOrder || [];
+            const ans = (answers[qnum] && answers[qnum].answer) || '';
+            const expl = (answers[qnum] && answers[qnum].explanation) || '';
+
+            // 子题标题
+            const titlePara = new Paragraph({});
+            titlePara.addChildElement(new TextRun({ text: `【${idx + 1}】【单选题】${qnum}. `, font: 'SimSun' }));
+            addMarkedText(titlePara, stem);
+            children.push(titlePara);
+
+            // 选项
+            optionOrder.forEach(letter => {
+                const optText = options[letter] || '';
+                const optPara = new Paragraph({});
+                optPara.addChildElement(new TextRun({ text: `${letter}. `, font: 'SimSun' }));
+                addMarkedText(optPara, optText);
+                children.push(optPara);
+            });
+
+            // 答
+            children.push(new Paragraph({
+                children: [new TextRun({ text: `答：${ans}`, font: 'SimSun' })],
+            }));
+
+            // 解
+            if (expl) {
+                children.push(new Paragraph({
+                    children: [new TextRun({ text: '解：', font: 'SimSun' })],
+                }));
+                addMultilineMarked(children, expl);
+            }
+
+            children.push(new Paragraph({}));
+        });
+    }
+
+    // ========== 词汇题（月测） ==========
+    function buildVocab(children, data, answers, sectionNum, partLabel) {
+        sectionNum = sectionNum || 2;
+        answers = answers || {};
+        partLabel = partLabel || 'part1';
+        const questions = data.questions || [];
+
+        const category = partLabel === 'part2' ? '选词填空' : '词义替换';
+        addHeading(children, `${sectionNum}、【复合题】【词汇题-${category}】`);
+
+        questions.forEach((q, idx) => {
+            const qnum = q.qnum || 0;
+            const stem = q.stem || '';
+            const options = q.options || {};
+            const optionOrder = q.option_order || q.optionOrder || [];
+            const ans = (answers[qnum] && answers[qnum].answer) || '';
+            const expl = (answers[qnum] && answers[qnum].explanation) || '';
+
+            // 子题标题
+            const titlePara = new Paragraph({});
+            titlePara.addChildElement(new TextRun({ text: `【${idx + 1}】【单选题】${qnum}. `, font: 'SimSun' }));
+            addMarkedText(titlePara, stem);
+            children.push(titlePara);
+
+            // 选项
+            optionOrder.forEach(letter => {
+                const optText = options[letter] || '';
+                const optPara = new Paragraph({});
+                optPara.addChildElement(new TextRun({ text: `${letter}. `, font: 'SimSun' }));
+                addMarkedText(optPara, optText);
+                children.push(optPara);
+            });
+
+            // 答
+            children.push(new Paragraph({
+                children: [new TextRun({ text: `答：${ans}`, font: 'SimSun' })],
+            }));
+
+            // 解（词汇题解析中划线词用下划线格式标记，通过 __xxx__ 标记实现）
+            if (expl) {
+                children.push(new Paragraph({
+                    children: [new TextRun({ text: '解：', font: 'SimSun' })],
+                }));
+                addMultilineMarked(children, expl);
+            }
+
+            children.push(new Paragraph({}));
+        });
+    }
+
+    // ========== 月测完形填空 ==========
+    function buildYueceCloze(children, data, answers, sectionNum) {
+        sectionNum = sectionNum || 3;
+        answers = answers || {};
+
+        addHeading(children, `${sectionNum}、【完形填空】【完形填空】`);
+
+        // 文章
+        const article = data.article || '';
+        writeClozeArticle(children, article);
+
+        children.push(new Paragraph({}));
+
+        // 子题
+        const questions = data.questions || [];
+        questions.forEach((q, idx) => {
+            const options = q.options || {};
+            const optionOrder = q.option_order || q.optionOrder || [];
+
+            children.push(new Paragraph({
+                children: [new TextRun({ text: `【${idx + 1}】`, font: 'SimSun' })],
+            }));
+
+            optionOrder.forEach(letter => {
+                const optText = options[letter] || '';
+                const para = new Paragraph({});
+                para.addChildElement(new TextRun({ text: `${letter}. `, font: 'SimSun' }));
+                addMarkedText(para, optText);
+                children.push(para);
+            });
+        });
+
+        // 答案
+        const answerLetters = [];
+        questions.forEach(q => {
+            const qnum = q.qnum || 0;
+            const ans = (answers[qnum] && answers[qnum].answer) || '';
+            answerLetters.push(ans);
+        });
+
+        children.push(new Paragraph({
+            children: [
+                new TextRun({ text: `答：${answerLetters.join('')}`, font: 'SimSun' }),
+            ],
+        }));
+
+        // 解析
+        children.push(new Paragraph({
+            children: [new TextRun({ text: '解：', font: 'SimSun' })],
+        }));
+
+        questions.forEach((q, idx) => {
+            const qnum = q.qnum || 0;
+            const expl = (answers[qnum] && answers[qnum].explanation) || '';
+            if (expl) {
+                const para = new Paragraph({});
+                para.addChildElement(new TextRun({ text: `【${idx + 1}】`, font: 'SimSun' }));
+                addMarkedText(para, expl);
+                children.push(para);
+            }
+        });
+    }
+
+    // ========== 月测翻译 ==========
+    function buildYueceTranslation(children, data, answers, sectionNum) {
+        sectionNum = sectionNum || 4;
+        answers = answers || {};
+        const sentences = data.sentences || [];
+
+        addHeading(children, `${sectionNum}、【复合题】【翻译】`);
+
+        sentences.forEach((sent, idx) => {
+            const qnum = sent.qnum || 0;
+            const sentText = sent.text || '';
+            const ansData = answers[qnum] || {};
+            const translation = ansData.translation || '';
+            const analysis = ansData.analysis || '';
+
+            // 子题
+            const para = new Paragraph({});
+            para.addChildElement(new TextRun({ text: `【${idx + 1}】【解答题】(${qnum}) `, font: 'SimSun' }));
+            addMarkedText(para, sentText);
+            children.push(para);
+
+            // 答
+            children.push(new Paragraph({
+                children: [new TextRun({ text: '答：', font: 'SimSun' })],
+            }));
+            if (translation) {
+                addMultilineMarked(children, translation);
+            }
+
+            // 解
+            if (analysis) {
+                children.push(new Paragraph({
+                    children: [new TextRun({ text: '解：', font: 'SimSun' })],
+                }));
+                addMultilineMarked(children, analysis);
+            }
+
+            children.push(new Paragraph({}));
+        });
+    }
+
     // ========== 创建文档（统一入口） ==========
     function createDocument(children, styles) {
         styles = styles || {};
@@ -629,6 +813,98 @@ const DocxGen = (function() {
         buildWriting(children, data, answerData, isPartA, isPartA ? 8 : 9);
         const doc = createDocument(children);
         await downloadDoc(doc, filename || (isPartA ? '小作文.docx' : '大作文.docx'));
+    }
+
+    async function generateGrammar(data, answers, filename) {
+        const children = [];
+        buildGrammar(children, data, answers, 1);
+        const doc = createDocument(children);
+        await downloadDoc(doc, filename || '语法题.docx');
+    }
+
+    async function generateVocab(data1, answers1, data2, answers2, filename) {
+        const children = [];
+        let sectionNum = 2;
+        if (data1 && data1.questions && data1.questions.length > 0) {
+            buildVocab(children, data1, answers1 || {}, sectionNum, 'part1');
+            sectionNum++;
+            if (data2 && data2.questions && data2.questions.length > 0) {
+                addPageBreak(children);
+            }
+        }
+        if (data2 && data2.questions && data2.questions.length > 0) {
+            buildVocab(children, data2, answers2 || {}, sectionNum, 'part2');
+        }
+        const doc = createDocument(children);
+        const name = '词汇题-月测.docx';
+        await downloadDoc(doc, filename || name);
+    }
+
+    async function generateYueceCloze(data, answers, filename) {
+        const children = [];
+        buildYueceCloze(children, data, answers, 3);
+        const doc = createDocument(children);
+        await downloadDoc(doc, filename || '完形填空-月测.docx');
+    }
+
+    async function generateYueceTranslation(data, answers, filename) {
+        const children = [];
+        buildYueceTranslation(children, data, answers, 4);
+        const doc = createDocument(children);
+        await downloadDoc(doc, filename || '翻译-月测.docx');
+    }
+
+    async function generateYueceFullPaper(examData, answerData, filename) {
+        examData = examData || {};
+        answerData = answerData || {};
+
+        const allChildren = [];
+        let sectionNum = 1;
+
+        // 语法题
+        if (examData.grammar && examData.grammar.questions && examData.grammar.questions.length > 0) {
+            buildGrammar(allChildren, examData.grammar, answerData.grammar || {}, sectionNum);
+            sectionNum++;
+            addPageBreak(allChildren);
+        }
+
+        // 词汇题 Part 1
+        if (examData.vocab_part1 && examData.vocab_part1.questions && examData.vocab_part1.questions.length > 0) {
+            buildVocab(allChildren, examData.vocab_part1, answerData.vocab_part1 || {}, sectionNum, 'part1');
+            sectionNum++;
+            addPageBreak(allChildren);
+        }
+
+        // 词汇题 Part 2
+        if (examData.vocab_part2 && examData.vocab_part2.questions && examData.vocab_part2.questions.length > 0) {
+            buildVocab(allChildren, examData.vocab_part2, answerData.vocab_part2 || {}, sectionNum, 'part2');
+            sectionNum++;
+            addPageBreak(allChildren);
+        }
+
+        // 完形填空
+        if (examData.cloze) {
+            buildYueceCloze(allChildren, examData.cloze, answerData.cloze || {}, sectionNum);
+            sectionNum++;
+            addPageBreak(allChildren);
+        }
+
+        // 翻译
+        if (examData.translation) {
+            buildYueceTranslation(allChildren, examData.translation, answerData.translation || {}, sectionNum);
+            sectionNum++;
+        }
+
+        // 移除最后的分页符
+        if (allChildren.length > 0) {
+            const last = allChildren[allChildren.length - 1];
+            if (last && last.root && last.root.length > 0 && last.root[0] instanceof PageBreak) {
+                allChildren.pop();
+            }
+        }
+
+        const doc = createDocument(allChildren);
+        await downloadDoc(doc, filename || '考研英语月测整卷.docx');
     }
 
     async function generateFullPaper(examData, answerData, paperType, transType, filename) {
@@ -707,6 +983,11 @@ const DocxGen = (function() {
         generatePartb,
         generateTranslation,
         generateWriting,
+        generateGrammar,
+        generateVocab,
+        generateYueceCloze,
+        generateYueceTranslation,
         generateFullPaper,
+        generateYueceFullPaper,
     };
 })();

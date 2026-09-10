@@ -216,8 +216,9 @@ const Formatter = (function() {
             items.forEach(item => {
                 const qnum = item.qnum || 0;
                 const paragraph = item.paragraph || '';
-                textLines.push(`${qnum}._______________________________`);
-                htmlLines.push(`<p>${qnum}._______________________________</p>`);
+                const blankLine = '_______________________________';
+                textLines.push(`${qnum}.${blankLine}`);
+                htmlLines.push(`<p>${qnum}.<u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</u></p>`);
                 paragraph.split('\n').forEach(line => {
                     textLines.push(applyMarksText(line));
                     if (line.trim()) {
@@ -541,17 +542,19 @@ const Formatter = (function() {
 
     function applyMarksText(text) {
         // 纯文本：移除 __ 和 ** 标记，保留内容
+        // 注意：__ 中间必须有非下划线字符才算标记，纯下划线串（如 ________ 空位）原样保留
         let result = text;
         result = result.replace(/\*\*(.+?)\*\*/g, '$1');
-        result = result.replace(/__(.+?)__/g, '$1');
+        result = result.replace(/__([^_]+?)__/g, '$1');
         return result;
     }
 
     function applyMarksHtml(text) {
         // HTML：__xxx__ → <u>xxx</u>, **xxx** → <b>xxx</b>
+        // 注意：__ 中间必须有非下划线字符才算标记，纯下划线串（如 ________ 空位）原样保留
         let result = escapeHtml(text);
         result = result.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-        result = result.replace(/__(.+?)__/g, '<u>$1</u>');
+        result = result.replace(/__([^_]+?)__/g, '<u>$1</u>');
         return result;
     }
 
@@ -562,15 +565,19 @@ const Formatter = (function() {
     }
 
     function addClozeUnderlineHtml(text) {
-        // 完形文章空位数字加下划线（HTML版）
-        const pattern = /(^|\s)([1-9]|1[0-9]|20)(?=\s|$|[,.!?;:])/gm;
+        // 完形文章空位加下划线（HTML版）
+        // 只识别 __数字__ 格式（从Word粘贴带下划线的数字会自动转成此格式）
+        // 输出时空位序号从 1 开始顺延重排
+        const pattern = /(^|\s)__(\d+)__(?=\s|$|[,.!?;:])/gm;
 
         const lines = text.split('\n');
         const resultLines = [];
+        let counter = 0;
 
         lines.forEach(line => {
             const newLine = line.replace(pattern, (match, prefix, num) => {
-                return `${prefix}<u>${num}</u>`;
+                counter += 1;
+                return `${prefix}<u> ${counter} </u>`;
             });
             resultLines.push(newLine);
         });
@@ -615,7 +622,8 @@ const Formatter = (function() {
             return [{ text: '', bold: false, underline: false }];
         }
 
-        const pattern = /(\*\*.+?\*\*)|(__.+?__)/g;
+        // __ 中间必须有非下划线字符才算标记，避免匹配到空位的纯下划线串
+        const pattern = /(\*\*.+?\*\*)|(__[^_]+?__)/g;
         let lastEnd = 0;
         let match;
 
@@ -667,12 +675,297 @@ const Formatter = (function() {
         return tokens;
     }
 
+    // ========== 语法题（月测） ==========
+    function formatGrammar(data, answers) {
+        answers = answers || {};
+        const questions = data.questions || [];
+
+        const textLines = [];
+        const htmlLines = [];
+
+        textLines.push('1、【单选题】【语法题】');
+        textLines.push('');
+        htmlLines.push('<div class="section-title">1、【单选题】【语法题】</div>');
+        htmlLines.push('');
+
+        questions.forEach((q, idx) => {
+            const qnum = q.qnum || 0;
+            const stem = q.stem || '';
+            const options = q.options || {};
+            const optionOrder = q.option_order || q.optionOrder || [];
+            const ans = (answers[qnum] && answers[qnum].answer) || '';
+            const expl = (answers[qnum] && answers[qnum].explanation) || '';
+            const qIdx = idx + 1;
+
+            // 子题标题（单选题）
+            textLines.push(`【${qIdx}】【单选题】${qnum}. ${applyMarksText(stem)}`);
+            const stemHtml = applyMarksHtml(stem);
+            htmlLines.push(`<p>【${qIdx}】【单选题】${qnum}. ${stemHtml}</p>`);
+
+            // 选项
+            optionOrder.forEach(letter => {
+                const optText = applyMarksText(options[letter] || '');
+                const optHtml = applyMarksHtml(options[letter] || '');
+                textLines.push(`${letter}. ${optText}`);
+                htmlLines.push(`<p>${letter}. ${optHtml}</p>`);
+            });
+
+            // 答
+            textLines.push(`答：${ans}`);
+            htmlLines.push(`<p class="answer-line">答：${ans}</p>`);
+
+            // 解：题干翻译英文原句 + 中文翻译 + 题目解析
+            if (expl) {
+                textLines.push('解：');
+                htmlLines.push('<p>解：</p>');
+                const explLines = expl.split('\n');
+                explLines.forEach(line => {
+                    if (line.trim()) {
+                        textLines.push(applyMarksText(line));
+                        htmlLines.push(`<p>${applyMarksHtml(line)}</p>`);
+                    } else {
+                        textLines.push('');
+                        htmlLines.push('<p>&nbsp;</p>');
+                    }
+                });
+            }
+
+            textLines.push('');
+            htmlLines.push('');
+        });
+
+        return {
+            text: textLines.join('\n'),
+            html: htmlLines.join('\n'),
+        };
+    }
+
+    // ========== 词汇题（月测） ==========
+    function formatVocab(data, answers, partLabel) {
+        answers = answers || {};
+        partLabel = partLabel || 'Part 1';
+        const questions = data.questions || [];
+
+        const textLines = [];
+        const htmlLines = [];
+
+        const sectionNum = partLabel.indexOf('2') >= 0 ? 3 : 2;
+        const category = partLabel.indexOf('2') >= 0 ? '选词填空' : '词义替换';
+
+        textLines.push(`${sectionNum}、【单选题】【${category}】`);
+        textLines.push('');
+        htmlLines.push(`<div class="section-title">${sectionNum}、【单选题】【${category}】</div>`);
+        htmlLines.push('');
+
+        questions.forEach((q, idx) => {
+            const qnum = q.qnum || 0;
+            const stem = q.stem || '';
+            const options = q.options || {};
+            const optionOrder = q.option_order || q.optionOrder || [];
+            const ans = (answers[qnum] && answers[qnum].answer) || '';
+            const expl = (answers[qnum] && answers[qnum].explanation) || '';
+            const qIdx = idx + 1;
+
+            // 子题标题（单选题）
+            textLines.push(`【${qIdx}】【单选题】${qnum}. ${applyMarksText(stem)}`);
+            const stemHtml = applyMarksHtml(stem);
+            htmlLines.push(`<p>【${qIdx}】【单选题】${qnum}. ${stemHtml}</p>`);
+
+            // 选项
+            optionOrder.forEach(letter => {
+                const optText = applyMarksText(options[letter] || '');
+                const optHtml = applyMarksHtml(options[letter] || '');
+                textLines.push(`${letter}. ${optText}`);
+                htmlLines.push(`<p>${letter}. ${optHtml}</p>`);
+            });
+
+            // 答
+            textLines.push(`答：${ans}`);
+            htmlLines.push(`<p class="answer-line">答：${ans}</p>`);
+
+            // 解：题干翻译英文原句 + 中文翻译 + 题目解析
+            // 词汇题解析中划线词用下划线格式标记
+            if (expl) {
+                textLines.push('解：');
+                htmlLines.push('<p>解：</p>');
+                const explLines = expl.split('\n');
+                explLines.forEach(line => {
+                    if (line.trim()) {
+                        textLines.push(applyMarksText(line));
+                        htmlLines.push(`<p>${applyMarksHtml(line)}</p>`);
+                    } else {
+                        textLines.push('');
+                        htmlLines.push('<p>&nbsp;</p>');
+                    }
+                });
+            }
+
+            textLines.push('');
+            htmlLines.push('');
+        });
+
+        return {
+            text: textLines.join('\n'),
+            html: htmlLines.join('\n'),
+        };
+    }
+
+    // ========== 月测完形填空 ==========
+    function formatYueceCloze(data, answers) {
+        answers = answers || {};
+
+        const textLines = [];
+        const htmlLines = [];
+
+        textLines.push('3、【完形填空】【完形填空】');
+        textLines.push('');
+        htmlLines.push('<div class="section-title">3、【完形填空】【完形填空】</div>');
+        htmlLines.push('');
+
+        // 文章
+        const article = data.article || '';
+        const articleText = applyMarksText(article);
+        const articleHtml = addClozeUnderlineHtml(applyMarksHtml(article));
+
+        articleText.split('\n').forEach(line => {
+            textLines.push(line);
+        });
+
+        articleHtml.split('\n').forEach(line => {
+            if (line.trim()) {
+                htmlLines.push(`<p>${line}</p>`);
+            } else {
+                htmlLines.push('<p>&nbsp;</p>');
+            }
+        });
+
+        textLines.push('');
+        htmlLines.push('');
+
+        // 子题
+        const questions = data.questions || [];
+        questions.forEach((q, idx) => {
+            const options = q.options || {};
+            const optionOrder = q.option_order || q.optionOrder || [];
+            const qIdx = idx + 1;
+
+            textLines.push(`【${qIdx}】`);
+            htmlLines.push(`<p>【${qIdx}】</p>`);
+
+            optionOrder.forEach(letter => {
+                const optText = applyMarksText(options[letter] || '');
+                const optHtml = applyMarksHtml(options[letter] || '');
+                textLines.push(`${letter}. ${optText}`);
+                htmlLines.push(`<p>${letter}. ${optHtml}</p>`);
+            });
+        });
+
+        // 答案
+        const answerLetters = [];
+        questions.forEach(q => {
+            const qnum = q.qnum || 0;
+            const ans = (answers[qnum] && answers[qnum].answer) || '';
+            answerLetters.push(ans);
+        });
+        const answerStr = answerLetters.join('');
+
+        textLines.push(`答：${answerStr}`);
+        htmlLines.push(`<p class="answer-line">答：${answerStr}</p>`);
+
+        // 解析
+        textLines.push('解：');
+        htmlLines.push('<p>解：</p>');
+
+        questions.forEach((q, idx) => {
+            const qnum = q.qnum || 0;
+            const expl = (answers[qnum] && answers[qnum].explanation) || '';
+            if (expl) {
+                const explText = applyMarksText(expl);
+                const explHtml = applyMarksHtml(expl);
+                textLines.push(`【${idx + 1}】${explText}`);
+                htmlLines.push(`<p>【${idx + 1}】${explHtml}</p>`);
+            }
+        });
+
+        return {
+            text: textLines.join('\n'),
+            html: htmlLines.join('\n'),
+        };
+    }
+
+    // ========== 月测翻译（解答题格式） ==========
+    function formatYueceTranslation(data, answers) {
+        answers = answers || {};
+        const sentences = data.sentences || [];
+
+        const textLines = [];
+        const htmlLines = [];
+
+        textLines.push('4、【复合题】【翻译】');
+        textLines.push('');
+        htmlLines.push('<div class="section-title">4、【复合题】【翻译】</div>');
+        htmlLines.push('');
+
+        sentences.forEach((sent, idx) => {
+            const qnum = sent.qnum || 0;
+            const sentText = sent.text || '';
+            const ansData = answers[qnum] || {};
+            const translation = ansData.translation || '';
+            const analysis = ansData.analysis || '';
+            const qIdx = idx + 1;
+
+            // 子题（解答题）
+            textLines.push(`【${qIdx}】【解答题】(${qnum}) ${applyMarksText(sentText)}`);
+            htmlLines.push(`<p>【${qIdx}】【解答题】(${qnum}) ${applyMarksHtml(sentText)}</p>`);
+
+            // 答
+            textLines.push('答：');
+            htmlLines.push('<p>答：</p>');
+            if (translation) {
+                translation.split('\n').forEach(line => {
+                    textLines.push(applyMarksText(line));
+                    if (line.trim()) {
+                        htmlLines.push(`<p>${applyMarksHtml(line)}</p>`);
+                    } else {
+                        htmlLines.push('<p>&nbsp;</p>');
+                    }
+                });
+            }
+
+            // 解
+            if (analysis) {
+                textLines.push('解：');
+                htmlLines.push('<p>解：</p>');
+                analysis.split('\n').forEach(line => {
+                    textLines.push(applyMarksText(line));
+                    if (line.trim()) {
+                        htmlLines.push(`<p>${applyMarksHtml(line)}</p>`);
+                    } else {
+                        htmlLines.push('<p>&nbsp;</p>');
+                    }
+                });
+            }
+
+            textLines.push('');
+            htmlLines.push('');
+        });
+
+        return {
+            text: textLines.join('\n'),
+            html: htmlLines.join('\n'),
+        };
+    }
+
     return {
         formatCloze,
         formatReading,
         formatPartb,
         formatTranslation,
         formatWriting,
+        formatGrammar,
+        formatVocab,
+        formatYueceCloze,
+        formatYueceTranslation,
         applyMarksText,
         applyMarksHtml,
         escapeHtml,
