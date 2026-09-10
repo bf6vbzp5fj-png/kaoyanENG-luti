@@ -15,23 +15,23 @@
                 <p class="subtitle">智能拆分 · 分题型编辑 · 实时预览 · 一键导出Word</p>
             </div>
             <div class="header-right">
-                <div class="paper-type-switch">
+                <!-- 模式切换：真题/模拟 / 月测 -->
+                <div class="mode-switch">
                     <label class="switch-label">
-                        <input type="radio" name="paperType" value="yingyi" checked onchange="switchPaperType('yingyi')">
-                        <span>英一</span>
+                        <input type="radio" name="modeType" value="zhenti" checked onchange="switchMode('zhenti')">
+                        <span>真题/模拟</span>
                     </label>
                     <label class="switch-label">
-                        <input type="radio" name="paperType" value="yinger" onchange="switchPaperType('yinger')">
-                        <span>英二</span>
+                        <input type="radio" name="modeType" value="yuece" onchange="switchMode('yuece')">
+                        <span>月测</span>
                     </label>
                 </div>
-
             </div>
         </header>
 
-        <!-- 标签页导航 -->
-        <nav class="tabs" role="tablist">
-            <button class="tab-btn active" data-tab="import">📥 整卷导入</button>
+        <!-- 标签页导航（真题模式） -->
+        <nav class="tabs zhenti-tabs" role="tablist">
+            <button class="tab-btn active" data-tab="import-zhenti">📥 整卷导入</button>
             <button class="tab-btn" data-tab="cloze">1️⃣ 完形填空</button>
             <button class="tab-btn" data-tab="reading">2️⃣ 阅读理解</button>
             <button class="tab-btn" data-tab="partb">3️⃣ 新题型</button>
@@ -40,8 +40,17 @@
             <button class="tab-btn" data-tab="writing-b">6️⃣ 大作文</button>
         </nav>
 
-        <!-- ========== 整卷导入 ========== -->
-        <div class="tab-content active" id="tab-import">
+        <!-- 标签页导航（月测模式） -->
+        <nav class="tabs yuece-tabs" role="tablist" style="display:none;">
+            <button class="tab-btn active" data-tab="import-yuece">📥 整卷导入</button>
+            <button class="tab-btn" data-tab="grammar">1️⃣ 语法题</button>
+            <button class="tab-btn" data-tab="vocab">2️⃣ 词汇题</button>
+            <button class="tab-btn" data-tab="yuece-cloze">3️⃣ 完形填空</button>
+            <button class="tab-btn" data-tab="yuece-translation">4️⃣ 翻译</button>
+        </nav>
+
+        <!-- ========== 整卷导入（真题模式） ========== -->
+        <div class="tab-content active" id="tab-import-zhenti">
             <div class="import-page">
                 <div class="import-section card">
                     <div class="section-header">
@@ -58,18 +67,47 @@
                     <textarea id="answer-text" placeholder="请粘贴答案解析文本，包含：&#10;各题型的答案和解析&#10;【试题解析】【答案】【解析】等标记&#10;写作部分的【参考范文】【参考译文】"></textarea>
                 </div>
                 <div class="import-actions">
-                    <button class="btn btn-primary btn-lg" id="btn-parse">🚀 智能拆分</button>
-                    <button class="btn btn-secondary" id="btn-clear-import">🗑️ 清空</button>
+                    <button class="btn btn-primary btn-lg" id="btn-parse" onclick="parseFullExam('zhenti')">🚀 智能拆分</button>
+                    <button class="btn btn-secondary" id="btn-clear-import" onclick="clearImport('zhenti')">🗑️ 清空</button>
                     <div class="parse-status" id="parse-status"></div>
                 </div>
                 <div class="import-actions">
-                    <button class="btn btn-success" id="btn-export-full">📄 导出整卷Word</button>
+                    <button class="btn btn-success" id="btn-export-full" onclick="exportFullPaper('zhenti')">📄 导出整卷Word</button>
                 </div>
                 <div class="parse-stats card" id="parse-stats"></div>
             </div>
         </div>
 
-        <!-- ========== 完形填空 ========== -->
+        <!-- ========== 整卷导入（月测模式） ========== -->
+        <div class="tab-content" id="tab-import-yuece">
+            <div class="import-page">
+                <div class="import-section card">
+                    <div class="section-header">
+                        <h2>📋 月测试题原文</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizePunct('yuece-exam-text', 'english')">🔧 规范英文标点</button>
+                    </div>
+                    <textarea id="yuece-exam-text" placeholder="请粘贴月测试题文本，包含：&#10;Section Ⅰ Grammar&#10;Section Ⅱ Vocabulary&#10;  Part 1（词义替换）&#10;  Part 2（选词填空）&#10;Section Ⅲ Cloze&#10;Section Ⅳ Translation"></textarea>
+                </div>
+                <div class="import-section card">
+                    <div class="section-header">
+                        <h2>📝 月测答案解析</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizePunct('yuece-answer-text', 'chinese')">🔧 规范中文标点</button>
+                    </div>
+                    <textarea id="yuece-answer-text" placeholder="请粘贴答案解析文本，按Section分区：&#10;Section Ⅰ Grammar&#10;  1.【答案】X&#10;  【解析】题干翻译...&#10;Section Ⅱ Vocabulary&#10;  Part 1 / Part 2&#10;  6.【答案】X&#10;  【解析】题干翻译...题目解析...&#10;..."></textarea>
+                </div>
+                <div class="import-actions">
+                    <button class="btn btn-primary btn-lg" id="btn-yuece-parse" onclick="parseFullExam('yuece')">🚀 智能拆分</button>
+                    <button class="btn btn-secondary" id="btn-clear-yuece-import" onclick="clearImport('yuece')">🗑️ 清空</button>
+                    <div class="parse-status" id="yuece-parse-status"></div>
+                </div>
+                <div class="import-actions">
+                    <button class="btn btn-success" id="btn-yuece-export-full" onclick="exportFullPaper('yuece')">📄 导出整卷Word</button>
+                </div>
+                <div class="parse-stats card" id="yuece-parse-stats"></div>
+            </div>
+        </div>
+
+        <!-- ========== 完形填空（真题+月测共用） ========== -->
         <div class="tab-content" id="tab-cloze">
             <div class="edit-layout">
                 <div class="edit-panel card">
@@ -216,7 +254,7 @@
             </div>
         </div>
 
-        <!-- ========== 翻译 ========== -->
+        <!-- ========== 翻译（真题模式） ========== -->
         <div class="tab-content" id="tab-translation">
             <div class="edit-layout">
                 <div class="edit-panel card">
@@ -369,7 +407,180 @@
             </div>
         </div>
 
+        <!-- ========== 语法题（月测模式） ========== -->
+        <div class="tab-content" id="tab-grammar">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 语法题编辑</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeGrammarPunct()">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>题目（题干+选项分行写）</label>
+                        <div class="textarea-hint">💡 题干中划线词用 <code>__单词__</code> 标记，Ctrl+U 快速加下划线</div>
+                        <textarea id="grammar-questions" rows="12" placeholder="每题格式：&#10;1. It is important to __arrive__ at the airport on time.&#10;A. 选项A&#10;B. 选项B&#10;C. 选项C&#10;D. 选项D&#10;2. ..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>答案解析（格式：题号|答案|解析）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code>，Ctrl+U/B 快捷键&#10;解析内容可包含：题干翻译英文原句+中文翻译+题目解析</div>
+                        <textarea id="grammar-answers" rows="8" placeholder="例如：&#10;1|B|题干翻译：...&#10;中文翻译：...&#10;题目解析：...&#10;2|A|题干翻译：..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('grammar')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="grammar-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('grammar')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 词汇题（月测模式） ========== -->
+        <div class="tab-content" id="tab-vocab">
+            <div class="edit-layout vocab-full">
+                <div class="edit-panel card">
+                    <!-- Part 1 词义替换 -->
+                    <div class="panel-header">
+                        <h2>✏️ Part 1 · 词义替换</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeVocabPunct('part1')">🔧 规范标点</button>
+                    </div>
+                    <div class="field-group">
+                        <label>题目（题干+选项分行写）</label>
+                        <div class="textarea-hint">💡 题干中划线词用 <code>__单词__</code> 标记</div>
+                        <textarea id="vocab-part1-questions" rows="10" placeholder="每题格式：&#10;6. The museum was able to __acquire__ several rare manuscripts.&#10;A. reject&#10;B. indicate&#10;C. obtain&#10;D. reflect&#10;7. ..."></textarea>
+                    </div>
+                    <div class="field-group">
+                        <label>答案解析（格式：题号|答案|解析）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="vocab-part1-answers" rows="6" placeholder="例如：&#10;6|C|题干翻译：...&#10;中文翻译：...&#10;题目解析：..."></textarea>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Part 2 选词填空 -->
+                    <div class="panel-header">
+                        <h2>✏️ Part 2 · 选词填空</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeVocabPunct('part2')">🔧 规范标点</button>
+                    </div>
+                    <div class="field-group">
+                        <label>题目（题干+选项分行写）</label>
+                        <div class="textarea-hint">💡 题干中划线词用 <code>__单词__</code> 标记</div>
+                        <textarea id="vocab-part2-questions" rows="10" placeholder="每题格式：&#10;16. ...&#10;A. ...&#10;B. ...&#10;C. ...&#10;D. ..."></textarea>
+                    </div>
+                    <div class="field-group">
+                        <label>答案解析（格式：题号|答案|解析）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="vocab-part2-answers" rows="6" placeholder="例如：&#10;16|A|题干翻译：...&#10;中文翻译：...&#10;题目解析：..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('vocab')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="vocab-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('vocab')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 月测-完形填空（复用cloze，独立tab） ========== -->
+        <div class="tab-content" id="tab-yuece-cloze">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 完形填空编辑（月测）</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeYueceClozePunct()">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>文章全文（空位数字自动识别加下划线）</label>
+                        <div class="textarea-hint">💡 支持特殊标记：<code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="yuece-cloze-article" rows="8" placeholder="输入完形文章..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>题目选项（每行一题，格式：题号 A.xxx B.xxx C.xxx D.xxx）</label>
+                        <textarea id="yuece-cloze-options" rows="8" placeholder="每行一题..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>答案（字母连写）</label>
+                        <input type="text" id="yuece-cloze-answer" placeholder="例如：BDCABADCAD...">
+                    </div>
+
+                    <div class="field-group">
+                        <label>解析（每行一题，格式：题号|解析内容）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="yuece-cloze-explanation" rows="6" placeholder="每行一题..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('yuece-cloze')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="yuece-cloze-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('yuece-cloze')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 月测-翻译（解答题格式） ========== -->
+        <div class="tab-content" id="tab-yuece-translation">
+            <div class="edit-layout">
+                <div class="edit-panel card">
+                    <div class="panel-header">
+                        <h2>✏️ 翻译编辑（月测）</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="normalizeYueceTranslationPunct()">🔧 规范标点</button>
+                    </div>
+
+                    <div class="field-group">
+                        <label>翻译句子（每行一题，格式：题号|英文句子）</label>
+                        <div class="textarea-hint">💡 支持 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="yuece-trans-sentences" rows="8" placeholder="每行一题：&#10;31|It is important to arrive at the airport on time.&#10;32|The government should increase the financing of pure science.&#10;33|..."></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>参考译文（每行一题，格式：题号|中文译文）</label>
+                        <textarea id="yuece-trans-translation" rows="6" placeholder="每行一题：&#10;31|准时到达机场很重要。&#10;32|政府应该增加对纯科学的资助。"></textarea>
+                    </div>
+
+                    <div class="field-group">
+                        <label>解析（每行一题，格式：题号|解析）</label>
+                        <div class="textarea-hint">💡 解析中可用 <code>__下划线__</code> <code>**加粗**</code></div>
+                        <textarea id="yuece-trans-analysis" rows="6" placeholder="每行一题：&#10;31|本句为简单句，it是形式主语...&#10;32|本句主语是The government..."></textarea>
+                    </div>
+                </div>
+                <div class="preview-panel card">
+                    <div class="preview-header">
+                        <h3>📄 实时预览</h3>
+                        <button class="btn btn-primary btn-sm" onclick="copyRichText('yuece-translation')">📋 复制</button>
+                    </div>
+                    <div class="preview-content" id="yuece-translation-preview"></div>
+                    <div class="preview-footer">
+                        <button class="btn btn-success btn-sm" onclick="exportDocx('yuece-translation')">📥 下载Word</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        <p>考研英语录题格式转换工具 <span>v1.2.1</span> · 纯前端版</p>
+    </footer>
 
     <div class="toast" id="toast"></div>
 
