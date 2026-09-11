@@ -412,7 +412,10 @@ function smartFixAnswerLineBreaks(text) {
     result = result.replace(/([^\n])(part\s+[a-d](?![A-Z]))/g, '$1\n$2');
     
     // 月测 Vocabulary 的 Part 1 / Part 2
-    result = result.replace(/([^\n])(Part\s+[12一二Ⅱ]\b)/gi, '$1\n$2');
+    // 注意：连写时可能出现 Part 16.【答案】（Part 1 + 第6题），需要正确识别 Part 编号
+    // 匹配规则：Part + 空格 + 1或2 或 一或二 或 Ⅱ，后面不是字母数字（即不是 Part 11/Part 12）
+    // 特殊情况：Part 16.【答案】 中 Part 1 是 Part 编号，6是题号
+    result = result.replace(/([^\n])(Part\s+(?:[12一二Ⅱ]))(?=\d+\s*[.．]?\s*【答案】)/gi, '$1\n$2\n');
     
     // ============== Text 相关处理 ==============
     result = result.replace(/(.)(Text\s*\d+)\s*([A-Z])/gi, '$1\n$2\n$3');
@@ -716,35 +719,89 @@ function initInputListeners() {
                     if (!html && !plainText) return;
                     
                     e.preventDefault();
-                    let text = html ? htmlToMarkedText(html) : plainText;
                     
-                    // 完形文章框：先智能断句，再自动拆分文章和选项
-                    if (id === 'cloze-article' || id === 'yuece-cloze-article') {
-                        // 从Word粘贴常是连写的，先做一次智能断句
-                        const fixedText = smartFixLineBreaks(text);
-                        const { article, options } = splitClozeArticleAndOptions(fixedText);
-                        if (options) {
-                            this.value = article;
-                            const optId = id === 'cloze-article' ? 'cloze-options' : 'yuece-cloze-options';
-                            const optEl = document.getElementById(optId);
-                            if (optEl) {
-                                optEl.value = options;
-                                optEl.dispatchEvent(new Event('input'));
+                    try {
+                        let text = html ? htmlToMarkedText(html) : plainText;
+                        let handled = false;
+                        
+                        // 完形文章框：先智能断句，再自动拆分文章和选项
+                        if (id === 'cloze-article' || id === 'yuece-cloze-article') {
+                            const fixedText = smartFixLineBreaks(text);
+                            const { article, options } = splitClozeArticleAndOptions(fixedText);
+                            if (options) {
+                                this.value = article;
+                                const optId = id === 'cloze-article' ? 'cloze-options' : 'yuece-cloze-options';
+                                const optEl = document.getElementById(optId);
+                                if (optEl) {
+                                    optEl.value = options;
+                                    optEl.dispatchEvent(new Event('input'));
+                                }
+                                this.setSelectionRange(article.length, article.length);
+                                this.dispatchEvent(new Event('input'));
+                                handled = true;
                             }
-                            this.setSelectionRange(article.length, article.length);
-                            this.dispatchEvent(new Event('input'));
-                            return;
                         }
+                        
+                        // 翻译文章框：自动提取下划线标记的划线句
+                        if (!handled && id === 'translation-article') {
+                            const underlines = extractTranslationUnderlines(text);
+                            if (underlines.length > 0) {
+                                const sentEl = document.getElementById('translation-sentences');
+                                if (sentEl) {
+                                    const existing = sentEl.value.trim();
+                                    const newText = translationArrayToText(underlines);
+                                    sentEl.value = existing ? existing + '\n' + newText : newText;
+                                    sentEl.dispatchEvent(new Event('input'));
+                                }
+                            }
+                        }
+                        
+                        // 翻译参考译文框：粘贴带【参考译文】【试题解析】的整段答案时，自动拆分到译文和解析
+                        if (!handled && (id === 'translation-trans' || id === 'yuece-trans-translation')) {
+                            if (/【(试题)?解析】|【翻译思路】/.test(text)) {
+                                const { translations, analysises } = splitTranslationAnswer(text);
+                                if (translations.length > 0) {
+                                    this.value = translationArrayToText(translations);
+                                    this.setSelectionRange(this.value.length, this.value.length);
+                                    this.dispatchEvent(new Event('input'));
+                                    handled = true;
+                                }
+                                if (analysises.length > 0) {
+                                    const anId = id === 'translation-trans' ? 'translation-analysis' : 'yuece-trans-analysis';
+                                    const anEl = document.getElementById(anId);
+                                    if (anEl) {
+                                        const existing = anEl.value.trim();
+                                        const newText = translationArrayToText(analysises);
+                                        anEl.value = existing ? existing + '\n' + newText : newText;
+                                        anEl.dispatchEvent(new Event('input'));
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 未被特殊处理的，走普通粘贴
+                        if (!handled) {
+                            const start = this.selectionStart;
+                            const end = this.selectionEnd;
+                            const before = this.value.substring(0, start);
+                            const after = this.value.substring(end);
+                            this.value = before + text + after;
+                            const newPos = start + text.length;
+                            this.setSelectionRange(newPos, newPos);
+                            this.dispatchEvent(new Event('input'));
+                        }
+                    } catch (err) {
+                        console.warn('粘贴处理出错，使用纯文本兜底：', err);
+                        // 兜底：直接把纯文本插进去
+                        const start = this.selectionStart;
+                        const end = this.selectionEnd;
+                        const before = this.value.substring(0, start);
+                        const after = this.value.substring(end);
+                        this.value = before + plainText + after;
+                        const newPos = start + plainText.length;
+                        this.setSelectionRange(newPos, newPos);
+                        this.dispatchEvent(new Event('input'));
                     }
-                
-                    const start = this.selectionStart;
-                    const end = this.selectionEnd;
-                    const before = this.value.substring(0, start);
-                    const after = this.value.substring(end);
-                    this.value = before + text + after;
-                    const newPos = start + text.length;
-                    this.setSelectionRange(newPos, newPos);
-                    this.dispatchEvent(new Event('input'));
                 });
                 // 快捷键：Ctrl+U 下划线，Ctrl+B 加粗
                 el.addEventListener('keydown', function(e) {
@@ -1449,8 +1506,9 @@ function formatTranslationYingyi() {
     const translations = parseLineKeyValue(transText);
     const analysises = parseLineKeyValue(analysisText);
 
-    // 文章 - 划线句加下划线
-    let articleHtml = article;
+    // 文章 - 先清掉所有 __ 下划线标记（避免从Word粘贴带进来的多余下划线）
+    // 再只给真正的划线句加下划线
+    let articleHtml = article.replace(/__/g, '');
     sentences.forEach(s => {
         if (s.text && articleHtml.includes(s.text)) {
             articleHtml = articleHtml.replaceAll(s.text, `{{U_START}}${s.text}{{U_END}}`);
@@ -1555,6 +1613,228 @@ function parseLineKeyValue(text) {
     });
 
     return result;
+}
+
+// ========== 翻译：从文章中提取划线句 ==========
+// 只提取真题标准格式：(46) __划线句__ 或 (46)__划线句__
+// 句子范围限定到句末标点，避免跨句匹配
+function extractTranslationUnderlines(text) {
+    const sentences = [];
+    
+    // 正则：(题号) 后面紧跟 __...__，句子到句末标点（.!?。！？）为止
+    // 格式：(46) __句子内容.__  或  (46)__句子内容.__
+    const regex = /[(（](\d{1,2})[)）]\s*__([^_](?:[^_]|_(?!_))*?[.!?。！？]?)\s*__/g;
+    let match;
+    
+    while ((match = regex.exec(text)) !== null) {
+        const qnum = parseInt(match[1]);
+        const sentence = match[2].trim();
+        // 过滤太短或不是句子的内容
+        if (!isNaN(qnum) && sentence.length >= 5) {
+            sentences.push({ qnum, text: sentence });
+        }
+    }
+    
+    // 如果没提取到，降级尝试宽松格式：46. __句子__
+    if (sentences.length === 0) {
+        const looseRegex = /(\d{1,2})\s*\.\s*__([^_](?:[^_]|_(?!_))*?[.!?。！？]?)\s*__/g;
+        while ((match = looseRegex.exec(text)) !== null) {
+            const qnum = parseInt(match[1]);
+            const sentence = match[2].trim();
+            if (!isNaN(qnum) && sentence.length >= 5) {
+                sentences.push({ qnum, text: sentence });
+            }
+        }
+    }
+    
+    return sentences;
+}
+
+// ========== 翻译：拆分参考译文和试题解析 ==========
+// 支持两种格式：
+// 格式A（按块分组）：【参考译文】46|xxx 47|xxx / 【试题解析】46|xxx 47|xxx
+// 格式B（按题分组）：(46)句子 / 【参考译文】xxx / 【翻译思路】xxx / (47)句子 / ...
+function splitTranslationAnswer(text) {
+    let translations = [];
+    let analysises = [];
+    
+    // 先用答案断句规整一下
+    const fixed = smartFixAnswerLineBreaks(text);
+    const lines = fixed.split('\n').map(l => l.trim()).filter(l => l);
+    
+    // 先判断格式：看【参考译文】出现的次数
+    let refTransCount = 0;
+    let analysisCount = 0;
+    lines.forEach(l => {
+        if (/^【参考译文】/.test(l)) refTransCount++;
+        if (/^【(试题)?解析】|^【翻译思路】/.test(l)) analysisCount++;
+    });
+    
+    // 格式B（按题分组）：【参考译文】出现多次（每题一个）
+    if (refTransCount > 1 || (refTransCount > 0 && analysisCount > 0 && refTransCount === analysisCount)) {
+        return splitTranslationByQuestion(lines);
+    }
+    
+    // 格式A（按块分组）：【参考译文】只有1个，【试题解析】只有1个
+    return splitTranslationBySection(lines);
+}
+
+// 格式A：按块分组（译文块 + 解析块）
+function splitTranslationBySection(lines) {
+    const translations = [];
+    const analysises = [];
+    
+    let currentSection = 'trans';
+    let currentQnum = null;
+    let currentContent = '';
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        if (/^【参考译文】/.test(line)) {
+            if (currentQnum && currentContent) {
+                (currentSection === 'trans' ? translations : analysises).push({
+                    qnum: currentQnum,
+                    text: currentContent.trim()
+                });
+            }
+            currentSection = 'trans';
+            currentQnum = null;
+            currentContent = '';
+            continue;
+        }
+        
+        if (/^【(试题)?解析】|^【翻译思路】/.test(line)) {
+            if (currentQnum && currentContent) {
+                (currentSection === 'trans' ? translations : analysises).push({
+                    qnum: currentQnum,
+                    text: currentContent.trim()
+                });
+            }
+            currentSection = 'analysis';
+            currentQnum = null;
+            currentContent = '';
+            continue;
+        }
+        
+        const qnumMatch = line.match(/^(\d{1,2})\s*[|｜\.\s、]\s*(.*)/);
+        if (qnumMatch) {
+            if (currentQnum && currentContent) {
+                (currentSection === 'trans' ? translations : analysises).push({
+                    qnum: currentQnum,
+                    text: currentContent.trim()
+                });
+            }
+            currentQnum = parseInt(qnumMatch[1]);
+            currentContent = qnumMatch[2];
+            continue;
+        }
+        
+        const onlyNumMatch = line.match(/^(\d{1,2})\s*$/);
+        if (onlyNumMatch && i + 1 < lines.length) {
+            if (currentQnum && currentContent) {
+                (currentSection === 'trans' ? translations : analysises).push({
+                    qnum: currentQnum,
+                    text: currentContent.trim()
+                });
+            }
+            currentQnum = parseInt(onlyNumMatch[1]);
+            currentContent = '';
+            continue;
+        }
+        
+        if (currentQnum) {
+            currentContent += (currentContent ? '\n' : '') + line;
+        }
+    }
+    
+    if (currentQnum && currentContent) {
+        (currentSection === 'trans' ? translations : analysises).push({
+            qnum: currentQnum,
+            text: currentContent.trim()
+        });
+    }
+    
+    return { translations, analysises };
+}
+
+// 格式B：按题分组（每题包含题号行+【参考译文】+【翻译思路】）
+function splitTranslationByQuestion(lines) {
+    const translations = [];
+    const analysises = [];
+    
+    let currentQnum = null;
+    let currentPart = null; // 'trans' or 'analysis' or 'sentence'
+    let currentContent = '';
+    
+    function saveCurrent() {
+        if (currentQnum === null) return;
+        if (currentPart === 'trans' && currentContent.trim()) {
+            translations.push({ qnum: currentQnum, text: currentContent.trim() });
+        } else if (currentPart === 'analysis' && currentContent.trim()) {
+            analysises.push({ qnum: currentQnum, text: currentContent.trim() });
+        }
+    }
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // 【参考译文】标记
+        if (/^【参考译文】/.test(line)) {
+            saveCurrent(); // 保存上一部分
+            currentPart = 'trans';
+            currentContent = '';
+            continue;
+        }
+        
+        // 【翻译思路】/【试题解析】/【解析】标记
+        if (/^【翻译思路】|^【(试题)?解析】/.test(line)) {
+            saveCurrent();
+            currentPart = 'analysis';
+            currentContent = '';
+            continue;
+        }
+        
+        // 题号行：(46) 或 46. 或 (50)句子开头
+        const qnumMatch = line.match(/^[(（]?\s*(\d{1,2})\s*[)）.、]?\s*/);
+        if (qnumMatch) {
+            const qnum = parseInt(qnumMatch[1]);
+            // 判断是不是新题的开始：
+            // 1. 题号和当前不同
+            // 2. 当前已经有译文或解析内容了（说明上一题完整了）
+            if (qnum !== currentQnum && (translations.length > 0 || analysises.length > 0 || currentContent)) {
+                saveCurrent();
+            }
+            currentQnum = qnum;
+            // 行后面还有内容的话，当作句子原文（句子行），不算译文也不算解析
+            const rest = line.substring(qnumMatch[0].length).trim();
+            if (rest && /[A-Za-z]/.test(rest)) {
+                currentPart = 'sentence';
+                currentContent = rest;
+            } else {
+                currentPart = null;
+                currentContent = '';
+            }
+            continue;
+        }
+        
+        // 普通内容行
+        if (currentPart && currentPart !== 'sentence') {
+            currentContent += (currentContent ? '\n' : '') + line;
+        }
+        // sentence 部分（句子原文）不收集，只用来识别题号
+    }
+    
+    // 保存最后一题
+    saveCurrent();
+    
+    return { translations, analysises };
+}
+
+// ========== 翻译：把数组转成 "题号|内容" 文本 ==========
+function translationArrayToText(arr) {
+    if (!arr || arr.length === 0) return '';
+    return arr.map(item => `${item.qnum}|${item.text}`).join('\n');
 }
 
 // ========== 写作本地格式化 ==========
@@ -2761,17 +3041,38 @@ function fillYueceExamData(examData, answerData) {
 
         const sentLines = (examData.translation.sentences || []).map(s => `${s.qnum}|${s.text}`);
         document.getElementById('yuece-trans-sentences').value = sentLines.join('\n');
+        
+        // 兜底：如果parser没解析出翻译答案，用splitTranslationAnswer再试一次
+        let transAnswerData = answerData.translation || {};
+        if (Object.keys(transAnswerData).length === 0) {
+            const answerText = document.getElementById('yuece-answer-text').value || '';
+            if (answerText.trim()) {
+                const { translations, analysises } = splitTranslationAnswer(answerText);
+                if (translations.length > 0 || analysises.length > 0) {
+                    transAnswerData = {};
+                    translations.forEach(t => {
+                        if (!transAnswerData[t.qnum]) transAnswerData[t.qnum] = { translation: '', analysis: '' };
+                        transAnswerData[t.qnum].translation = t.text;
+                    });
+                    analysises.forEach(a => {
+                        if (!transAnswerData[a.qnum]) transAnswerData[a.qnum] = { translation: '', analysis: '' };
+                        transAnswerData[a.qnum].analysis = a.text;
+                    });
+                    state.yuece.answerData.translation = transAnswerData;
+                }
+            }
+        }
 
         const transLines = (examData.translation.sentences || []).map(s => {
-            const tr = (answerData.translation && answerData.translation[s.qnum])
-                ? answerData.translation[s.qnum].translation : '';
+            const tr = (transAnswerData && transAnswerData[s.qnum])
+                ? transAnswerData[s.qnum].translation : '';
             return `${s.qnum}|${tr.split('\n').join(' ')}`;
         });
         document.getElementById('yuece-trans-translation').value = transLines.join('\n');
 
         const analysisLines = (examData.translation.sentences || []).map(s => {
-            const a = (answerData.translation && answerData.translation[s.qnum])
-                ? answerData.translation[s.qnum].analysis : '';
+            const a = (transAnswerData && transAnswerData[s.qnum])
+                ? transAnswerData[s.qnum].analysis : '';
             return `${s.qnum}|${a.split('\n').join(' ')}`;
         });
         document.getElementById('yuece-trans-analysis').value = analysisLines.join('\n');
