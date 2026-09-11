@@ -566,25 +566,36 @@ const Formatter = (function() {
 
     function addClozeUnderlineHtml(text) {
         // 完形文章空位加下划线（HTML版）
-        // 只识别 __数字__ 格式（从Word粘贴带下划线的数字会自动转成此格式）
+        // 兼容两种格式：__数字__（Word粘贴下划线）和 空格+数字+空格（纯文本）
         // 输出时空位序号从 1 开始顺延重排
-        const pattern = /(^|\s)__(\d+)__(?=\s|$|[,.!?;:])/gm;
-
         const lines = text.split('\n');
         const resultLines = [];
         let counter = 0;
-
         lines.forEach(line => {
-            const newLine = line.replace(pattern, (match, prefix, num) => {
+            // 先替换 __数字__ 格式
+            let newLine = line.replace(/(^|\s)__(\d+)__(?=\s|$|[,.!?;:])/gm, (match, prefix, num) => {
                 counter += 1;
                 return `${prefix}<u> ${counter} </u>`;
             });
+            // 再替换 空格+数字+空格 格式（纯文本粘贴）
+            // 注意：必须是前后都是空白的独立数字，且排除已被 <u> 包裹的
+            newLine = newLine.replace(/(^|\s)(\d{1,2})(?=\s|$|[,.!?;:])/g, (match, prefix, num, offset) => {
+                // 避免匹配 <u> 标签里的数字
+                const before = newLine.substring(0, offset + prefix.length);
+                if (before.lastIndexOf('<u>') > before.lastIndexOf('</u>')) {
+                    return match;
+                }
+                const n = parseInt(num);
+                if (n >= 1 && n <= 50) {
+                    counter += 1;
+                    return `${prefix}<u> ${counter} </u>`;
+                }
+                return match;
+            });
             resultLines.push(newLine);
         });
-
         return resultLines.join('\n');
     }
-
     function addTranslationUnderlineHtml(text, underlinedSentences) {
         // 翻译文章划线句（HTML版）
         if (!underlinedSentences || underlinedSentences.length === 0) {

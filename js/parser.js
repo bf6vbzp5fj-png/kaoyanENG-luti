@@ -143,16 +143,22 @@ const Parser = (function() {
             p = p.replace(/^#+\s*/, '');
 
             // Section I Use of English
-            if (/^Section\s*I\s/i.test(p)) {
-                if (p.indexOf('Use of English') >= 0 || p.indexOf('完形') >= 0) {
+            if (/^Section\s*I\b/i.test(p)) {
+                // 可能在同一行，也可能下一行是 Use of English
+                const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+                if (p.indexOf('Use of English') >= 0 || p.indexOf('完形') >= 0 ||
+                    nextP.indexOf('Use of English') >= 0 || nextP.indexOf('完形') >= 0) {
                     sections.cloze_start = i;
                 }
                 continue;
             }
 
             // Section II Reading Comprehension
-            if (/^Section\s*II\s/i.test(p) && p.indexOf('Reading') >= 0) {
-                sections.sectionII_start = i;
+            if (/^Section\s*II\b/i.test(p)) {
+                const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+                if (p.indexOf('Reading') >= 0 || nextP.indexOf('Reading') >= 0) {
+                    sections.sectionII_start = i;
+                }
                 continue;
             }
 
@@ -178,9 +184,12 @@ const Parser = (function() {
             }
 
             // Section III Writing
-            if (/^Section\s*III\s/i.test(p) && p.toLowerCase().indexOf('writing') >= 0) {
-                sections.writing_section_start = i;
-                sections.writing_start = i;
+            if (/^Section\s*III\b/i.test(p)) {
+                const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+                if (p.toLowerCase().indexOf('writing') >= 0 || nextP.toLowerCase().indexOf('writing') >= 0) {
+                    sections.writing_section_start = i;
+                    sections.writing_start = i;
+                }
             }
 
             // Writing Part A
@@ -209,16 +218,21 @@ const Parser = (function() {
             // 去除 markdown 标题标记 (#, ##, ### 等)
             p = p.replace(/^#+\s*/, '');
 
-            if (/^Section\s*I\s/i.test(p)) {
-                if (p.indexOf('Use of English') >= 0 || p.indexOf('完形') >= 0) {
+            if (/^Section\s*I\b/i.test(p)) {
+                const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+                if (p.indexOf('Use of English') >= 0 || p.indexOf('完形') >= 0 ||
+                    nextP.indexOf('Use of English') >= 0 || nextP.indexOf('完形') >= 0) {
                     sections.cloze_start = i;
                 }
                 continue;
             }
 
-            if (/^Section\s*II\s/i.test(p) && p.indexOf('Reading') >= 0) {
-                sections.reading_section_start = i;
-                sections.sectionII_start = i;
+            if (/^Section\s*II\b/i.test(p)) {
+                const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+                if (p.indexOf('Reading') >= 0 || nextP.indexOf('Reading') >= 0) {
+                    sections.reading_section_start = i;
+                    sections.sectionII_start = i;
+                }
                 continue;
             }
 
@@ -244,8 +258,10 @@ const Parser = (function() {
                 }
             }
 
-            if (/^Section\s*III\s/i.test(p)) {
-                if (p.indexOf('Writing') >= 0 || p.indexOf('写作') >= 0 || p.toLowerCase().indexOf('writing') >= 0) {
+            if (/^Section\s*III\b/i.test(p)) {
+                const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+                if (p.indexOf('Writing') >= 0 || p.indexOf('写作') >= 0 || p.toLowerCase().indexOf('writing') >= 0 ||
+                    nextP.indexOf('Writing') >= 0 || nextP.indexOf('写作') >= 0) {
                     sections.writing_section_start = i;
                     sections.writing_start = i;
                 }
@@ -1328,41 +1344,68 @@ const Parser = (function() {
     function locateYueceSections(paragraphs) {
         const sections = {};
 
+        // 精确匹配 Section 编号，避免短编号截胡长编号
+        // numType: 'III' | 'IV' | 'II' | 'I' （按从长到短排列）
+        function isSectionNum(p, numType) {
+            const m = p.match(/^Section\s+([^\s:：]+)/i);
+            if (!m) return false;
+            const num = m[1];
+            // 去掉可能跟着的标点
+            const clean = num.replace(/[.．,，:：].*$/, '');
+            if (numType === 'III') {
+                return clean === 'III' || clean === 'Ⅲ' || clean === '3' || clean === '三';
+            }
+            if (numType === 'IV') {
+                return clean === 'IV' || clean === 'Ⅳ' || clean === '4' || clean === '四';
+            }
+            if (numType === 'II') {
+                return clean === 'II' || clean === 'Ⅱ' || clean === '2' || clean === '二';
+            }
+            if (numType === 'I') {
+                return clean === 'I' || clean === 'Ⅰ' || clean === '1' || clean === '一';
+            }
+            return false;
+        }
+
         for (let i = 0; i < paragraphs.length; i++) {
             let p = paragraphs[i].trim();
             // 去除 markdown 标题标记
             p = p.replace(/^#+\s*/, '');
+            if (!p) continue;
 
-            // Section Ⅰ Grammar / 语法
-            if (/^Section\s*[Ⅰ1]\s/i.test(p)) {
-                if (p.indexOf('Grammar') >= 0 || p.indexOf('语法') >= 0) {
-                    sections.grammar_start = i;
-                }
-                continue;
-            }
+            const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+            const hasKeyword = (kw) => p.indexOf(kw) >= 0 || nextP.indexOf(kw) >= 0;
 
-            // Section Ⅱ Vocabulary / 词汇
-            if (/^Section\s*[Ⅱ2]\s/i.test(p) || /^Section\s*II\s/i.test(p)) {
-                if (p.indexOf('Vocabulary') >= 0 || p.indexOf('词汇') >= 0) {
-                    sections.vocab_start = i;
-                }
-                continue;
-            }
-
-            // Section Ⅲ Cloze / 完形
-            if (/^Section\s*[Ⅲ3]\s/i.test(p) || /^Section\s*III\s/i.test(p)) {
-                if (p.indexOf('Cloze') >= 0 || p.indexOf('完形') >= 0 || p.indexOf('Use of English') >= 0) {
+            // Section III / Ⅲ / 3 → Cloze / 完形（先匹配长的，避免 I/II 截胡）
+            if (isSectionNum(p, 'III')) {
+                if (hasKeyword('Cloze') || hasKeyword('完形') || hasKeyword('Use of English')) {
                     sections.cloze_start = i;
+                    continue;
                 }
-                continue;
             }
 
-            // Section Ⅳ Translation / 翻译
-            if (/^Section\s*[Ⅳ4]\s/i.test(p) || /^Section\s*IV\s/i.test(p)) {
-                if (p.indexOf('Translation') >= 0 || p.indexOf('翻译') >= 0) {
+            // Section IV / Ⅳ / 4 → Translation / 翻译
+            if (isSectionNum(p, 'IV')) {
+                if (hasKeyword('Translation') || hasKeyword('翻译')) {
                     sections.translation_start = i;
+                    continue;
                 }
-                continue;
+            }
+
+            // Section II / Ⅱ / 2 → Vocabulary / 词汇
+            if (isSectionNum(p, 'II')) {
+                if (hasKeyword('Vocabulary') || hasKeyword('词汇')) {
+                    sections.vocab_start = i;
+                    continue;
+                }
+            }
+
+            // Section I / Ⅰ / 1 → Grammar / 语法（最后匹配，避免截胡II/III/IV）
+            if (isSectionNum(p, 'I')) {
+                if (hasKeyword('Grammar') || hasKeyword('语法')) {
+                    sections.grammar_start = i;
+                    continue;
+                }
             }
         }
 
@@ -1671,40 +1714,64 @@ const Parser = (function() {
     function locateYueceAnswerSections(paragraphs) {
         const sections = {};
 
+        // 精确匹配 Section 编号，避免短编号截胡长编号
+        function isSectionNum(p, numType) {
+            const m = p.match(/^Section\s+([^\s:：]+)/i);
+            if (!m) return false;
+            const num = m[1].replace(/[.．,，:：].*$/, '');
+            if (numType === 'III') {
+                return num === 'III' || num === 'Ⅲ' || num === '3' || num === '三';
+            }
+            if (numType === 'IV') {
+                return num === 'IV' || num === 'Ⅳ' || num === '4' || num === '四';
+            }
+            if (numType === 'II') {
+                return num === 'II' || num === 'Ⅱ' || num === '2' || num === '二';
+            }
+            if (numType === 'I') {
+                return num === 'I' || num === 'Ⅰ' || num === '1' || num === '一';
+            }
+            return false;
+        }
+
         for (let i = 0; i < paragraphs.length; i++) {
             let p = paragraphs[i].trim();
             p = p.replace(/^#+\s*/, '');
+            if (!p) continue;
 
-            // Section Ⅰ Grammar / 语法
-            if (/^Section\s*[Ⅰ1]\s/i.test(p)) {
-                if (p.indexOf('Grammar') >= 0 || p.indexOf('语法') >= 0) {
-                    sections.grammar_start = i;
-                }
-                continue;
-            }
+            const nextP = i + 1 < paragraphs.length ? paragraphs[i + 1].trim() : '';
+            const hasKeyword = (kw) => p.indexOf(kw) >= 0 || nextP.indexOf(kw) >= 0;
 
-            // Section Ⅱ Vocabulary / 词汇
-            if (/^Section\s*[Ⅱ2]\s/i.test(p) || /^Section\s*II\s/i.test(p)) {
-                if (p.indexOf('Vocabulary') >= 0 || p.indexOf('词汇') >= 0) {
-                    sections.vocab_start = i;
-                }
-                continue;
-            }
-
-            // Section Ⅲ Cloze / 完形
-            if (/^Section\s*[Ⅲ3]\s/i.test(p) || /^Section\s*III\s/i.test(p)) {
-                if (p.indexOf('Cloze') >= 0 || p.indexOf('完形') >= 0 || p.indexOf('Use of English') >= 0) {
+            // Section III / Ⅲ / 3 → Cloze / 完形（先匹配长的）
+            if (isSectionNum(p, 'III')) {
+                if (hasKeyword('Cloze') || hasKeyword('完形') || hasKeyword('Use of English')) {
                     sections.cloze_start = i;
+                    continue;
                 }
-                continue;
             }
 
-            // Section Ⅳ Translation / 翻译
-            if (/^Section\s*[Ⅳ4]\s/i.test(p) || /^Section\s*IV\s/i.test(p)) {
-                if (p.indexOf('Translation') >= 0 || p.indexOf('翻译') >= 0) {
+            // Section IV / Ⅳ / 4 → Translation / 翻译
+            if (isSectionNum(p, 'IV')) {
+                if (hasKeyword('Translation') || hasKeyword('翻译')) {
                     sections.translation_start = i;
+                    continue;
                 }
-                continue;
+            }
+
+            // Section II / Ⅱ / 2 → Vocabulary / 词汇
+            if (isSectionNum(p, 'II')) {
+                if (hasKeyword('Vocabulary') || hasKeyword('词汇')) {
+                    sections.vocab_start = i;
+                    continue;
+                }
+            }
+
+            // Section I / Ⅰ / 1 → Grammar / 语法（最后匹配）
+            if (isSectionNum(p, 'I')) {
+                if (hasKeyword('Grammar') || hasKeyword('语法')) {
+                    sections.grammar_start = i;
+                    continue;
+                }
             }
         }
 

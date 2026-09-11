@@ -100,7 +100,7 @@ function switchMode(mode) {
 
         // 隐藏所有月测tab-content，激活真题第一个tab
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-        const firstZhentiTab = document.getElementById('tab-import-zhenti');
+        const firstZhentiTab = document.getElementById('tab-cloze');
         if (firstZhentiTab) firstZhentiTab.classList.add('active');
 
         // 更新tab按钮状态：仅真题组第一个激活
@@ -220,6 +220,432 @@ function loadReadingText(idx) {
 }
 
 // ========== 输入监听（防抖） ==========
+// 拆分完形文章和选项：检测到选项行返回 {article, options}，否则返回 {article: text, options: ''}
+function splitClozeArticleAndOptions(text) {
+    // 先尝试按行匹配（标准格式）
+    const lines = text.split('\n');
+    const optionLines = [];
+    const articleLines = [];
+    let foundOptions = false;
+    // 选项行格式：数字 A.xxx B.xxx C.xxx D.xxx 或 数字. [A]xxx [B]xxx
+    const optLinePattern = /^\s*\d+\s*[.．]?\s*(?:[A-Da-d][.．\)]|\[[A-Da-d]\])\s*\S/;
+
+    for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim();
+        if (!trimmed) {
+            if (foundOptions) {
+                optionLines.push('');
+            } else {
+                articleLines.push('');
+            }
+            continue;
+        }
+        if (optLinePattern.test(trimmed)) {
+            foundOptions = true;
+            optionLines.push(trimmed);
+        } else if (foundOptions) {
+            optionLines.push(lines[i]);
+        } else {
+            articleLines.push(lines[i]);
+        }
+    }
+
+    if (foundOptions) {
+        while (articleLines.length > 0 && articleLines[articleLines.length - 1].trim() === '') articleLines.pop();
+        while (optionLines.length > 0 && optionLines[optionLines.length - 1].trim() === '') optionLines.pop();
+        return { article: articleLines.join('\n'), options: optionLines.join('\n') };
+    }
+
+    // 再尝试连写格式：文章末尾紧跟 1. [A]... 2. [A]... 这样的选项
+    // 匹配第一个 "数字. [字母]" 或 "数字 字母." 的位置
+    const inlinePattern = /(\d+)\s*[.．]?\s*(?:\[[A-Da-d]\]|[A-Da-d][.．\)])\s*\S/;
+    // 从后往前找第20题附近，或从前往后找第1题
+    let match = text.match(inlinePattern);
+    if (match && match.index > 50) { // 文章至少50个字符才合理
+        const articlePart = text.substring(0, match.index).trim();
+        const optionsPart = text.substring(match.index).trim();
+        // 把选项拆成每行一题：在 数字. [字母] 前面换行
+        const formattedOptions = optionsPart
+            .replace(/(\d+)\s*[.．]?\s*(?=\[[A-Da-d]\]|[A-Da-d][.．\)])/g, '\n$1. ')
+            .trim();
+        return { article: articlePart, options: formattedOptions };
+    }
+
+    return { article: text, options: '' };
+}
+
+// 快捷键：Ctrl+U 加下划线、Ctrl+B 加粗
+
+// 智能换行修复：Word表格粘贴导致无换行时，通过Section/Part/Text等关键词断句
+
+// 智能换行修复：Word表格粘贴导致无换行时，通过Section/Part/Text等关键词断句
+function smartFixLineBreaks(text) {
+    if (!text) return text;
+    // 如果已经有足够多的换行了（超过10行且有Section），直接返回
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length > 10 && /Section\s*[IVX]/i.test(text)) return text;
+    
+    let result = text;
+    
+    // ============== Section 相关处理 ==============
+    // 1. Section 和罗马数字之间加空格（SectionI → Section I，从长到短避免截胡）
+    //    支持拉丁字母（III/IV/II/I/V）和 Unicode（Ⅲ/Ⅳ/Ⅱ/Ⅰ/Ⅴ）
+    //    不用 \b，因为 \b 对 Unicode 罗马数字字符无效，用前瞻 (?![a-zA-Z])
+    const examRoman = '(?:Ⅲ|Ⅳ|Ⅱ|Ⅰ|Ⅴ|III|IV|II|I|V)';
+    result = result.replace(new RegExp('Section\\s*' + examRoman + '(?![a-zA-Z])', 'gi'), (m) => {
+        const match = m.match(/^Section\s*(.*)$/i);
+        return match ? 'Section ' + match[1] : m;
+    });
+    
+    // 2. Section 前加换行（匹配完整的 Section + 罗马数字）
+    result = result.replace(new RegExp('(.)(Section\\s+' + examRoman + '(?![a-zA-Z]))', 'gi'), '$1\n$2');
+    
+    // 3. Section 后如果紧跟大写字母，也换行（Section IUse → Section I\nUse）
+    result = result.replace(new RegExp('(Section\\s+' + examRoman + ')\\s*([A-Z])', 'gi'), '$1\n$2');
+    
+    // ============== Part 相关处理 ==============
+    // Part 标题前加换行（Part A / Part B / Part C / Part D 等）
+    // 注意：i 标志会让 (?![a-z]) 也排除大写字母，所以前瞻断言不用 i 标志
+    // 匹配规则：Part + 单个大写字母 A-D，后面不能紧跟小写字母（避免匹配 Partial/Partake 等单词）
+    result = result.replace(/([^\n])(Part\s+[A-D](?![a-z]))/g, '$1\n$2');
+    // 兼容小写 part
+    result = result.replace(/([^\n])(part\s+[a-d](?![A-Z]))/g, '$1\n$2');
+    
+    // ============== Text 相关处理 ==============
+    // Text 1/2/3/4 前加换行，后也换行（阅读理解标题独立一行）
+    result = result.replace(/(.)(Text\s*\d+)\s*([A-Z])/gi, '$1\n$2\n$3');
+    result = result.replace(/(.)(Text\s*\d+\b)(?=[\s\n])/gi, '$1\n$2');
+    
+    // ============== Directions 处理 ==============
+    result = result.replace(/(.)(Directions[:：])/gi, '$1\n$2');
+    
+    // ============== 题号相关处理 ==============
+    // 完形/阅读选项行：数字. [A] 或 数字 [A] 开头
+    // 注意：必须从行首或非数字字符开始，且数字必须是完整的（不能从多位数中间断开）
+    // 用 (^|[^\d]) 确保前面不是数字，避免 "26. A." 被从 "6." 处断开
+    result = result.replace(/(^|[^\d])(\d{1,2}\s*[.．]?\s*(?:\[[A-Da-d]\]|[A-Da-d][.．\)]))/gm, '$1\n$2');
+    
+    // 题干行断句：数字+.+大写字母开头的题干（阅读题 21. According... 或 21.According...）
+    // 规则：必须是两位数或更大的数字开头，前面不是数字，后面跟大写字母
+    // 注意：句号和大写字母之间允许有空格
+    result = result.replace(/(^|[^\d])(\d{2,3}\s*[.．]\s*[A-Z][a-z])/gm, '$1\n$2');
+    
+    // 补充：数字+.+[字母] 开头的选项行（阅读题 21. [A] xxx...）
+    // 上面的选项行断句已经处理了 \d{1,2}，但需要确保两位数也能正确断
+    // 额外处理：句号/问号后紧跟两位数题号+句号的情况（正文结尾和题号连写）
+    result = result.replace(/([.!?。？！])(\s*)(\d{2,3}\s*[.．])/g, '$1\n$3');
+    
+    // ============== 固定短语断句 ==============
+    result = result.replace(/(Use of English\b\s*)/i, '$1\n');
+    result = result.replace(/(Reading Comprehension\b\s*)/i, '$1\n');
+    result = result.replace(/(ANSWER SHEET[^\n.]*\.?\s*)/i, '$1\n\n');
+    result = result.replace(/(For questions?\s*\d+[-–]\d+\s*,)/i, '$1\n');
+    
+    // ============== 句子边界断句 ==============
+    // 句子结尾句号后如果紧跟大写字母开头的单词（正文句），加换行
+    // 只在小写字母后断句，避免 Mr. / Dr. / 数字. 等误断
+    // 同时排除 A./B./C./D. 选项的情况（大写字母+句号是选项标记）
+    // 方法：先在换行后做更精细的判断——小写字母句号 + 非A-D大写字母
+    result = result.replace(/([a-z]\.)\s*([E-Z][a-z])/g, '$1\n$2');
+    
+    // ============== 真题特有断句 ==============
+    // Writing 部分的 Section III Writing / Part A / Part B
+    result = result.replace(/(Section\s+III\b)[\s\S]*?(Writing\b)/i, (m, s, w) => {
+        return m.replace(/\s+/g, ' ').replace('Writing', '\nWriting');
+    });
+    // Section III Writing 后换行（确保 Writing 独立一行）
+    result = result.replace(/(Section\s+III\s+Writing\b)/i, '$1\n');
+    
+    // 写作 Part A / Part B 后面如果跟的是 Directions 或正文，前面换行
+    result = result.replace(/([^\n])(Part\s+[AB]\b)(?=\s*Directions|\s*[A-Z][a-z])/gi, '$1\n$2');
+    
+    // 翻译部分的 (46) / (47)... 划线句标记前换行（英译汉题号）
+    result = result.replace(/([^\n\(])(\(\d{2}\))\s*/g, '$1\n$2');
+    
+    // 阅读 21~40 题题干行前换行（增强：数字. + 大写字母或 Wh- 词）
+    // 已在上面的题干行断句处理过，这里补一个更宽的规则：行首数字+句号+空格+大写
+    // （上面规则用了 \d{2,3} 即两位数以上，没问题）
+    
+    // 保守补充：如果行数还是太少（说明文本高度连写），再用句号+空格+大写字母补断
+    // 但排除 A./B./C./D. 选项标记，避免把选项行拆烂
+    if (result.split('\n').length < 6) {
+        result = result.replace(/([.!?])\s+(?=[A-Z])(?![A-D][.．\)])/g, '$1\n');
+    }
+    
+    return result;
+}
+
+// ============== 答案解析智能断句 ==============
+// 专门处理「参考答案与解析」类文本从 Word 粘贴后的连写问题
+// 与试题断句分开，避免试题规则破坏答案格式
+function smartFixAnswerLineBreaks(text) {
+    if (!text) return text;
+    // 如果已经有足够多的换行了（超过10行且有Section或【答案】），直接返回
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length > 10 && (/Section\s*[IVX]/i.test(text) || /【答案】/.test(text))) return text;
+    
+    let result = text;
+    
+    // ============== Section 相关处理 ==============
+    // 1. Section 和罗马数字之间加空格（从长到短，支持拉丁字母和 Unicode 罗马数字）
+    //    拉丁字母: III IV II I V
+    //    Unicode: Ⅲ Ⅳ Ⅱ Ⅰ Ⅴ
+    //    注意：不用 \b，因为 \b 对 Unicode 罗马数字字符无效
+    const romanPattern = '(?:Ⅲ|Ⅳ|Ⅱ|Ⅰ|Ⅴ|III|IV|II|I|V)';
+    result = result.replace(new RegExp('Section\\s*' + romanPattern + '(?![a-zA-Z])', 'gi'), (m) => {
+        const match = m.match(/^Section\s*(.*)$/i);
+        return match ? 'Section ' + match[1] : m;
+    });
+    
+    // 2. Section 前加换行（从行中任意位置断开）
+    //    用前瞻 (?![a-zA-Z]) 确保罗马数字不是单词的一部分
+    result = result.replace(new RegExp('(.)(Section\\s+' + romanPattern + '(?![a-zA-Z]))', 'gi'), '$1\n$2');
+    
+    // 3. Section 后如果紧跟题型名（大写字母或中文字开头），换行
+    result = result.replace(new RegExp('(Section\\s+' + romanPattern + ')\\s*([A-Z\\u4e00-\\u9fa5])', 'gi'), '$1\n$2');
+    
+    // 4. "参考答案与解析" 这种前缀如果跟 Section 连在一起，前面也换行
+    result = result.replace(/(参考答案与解析)/, '$1\n');
+    
+    // ============== Part 相关处理 ==============
+    result = result.replace(/([^\n])(Part\s+[A-D](?![a-z]))/g, '$1\n$2');
+    result = result.replace(/([^\n])(part\s+[a-d](?![A-Z]))/g, '$1\n$2');
+    
+    // 月测 Vocabulary 的 Part 1 / Part 2
+    result = result.replace(/([^\n])(Part\s+[12一二Ⅱ]\b)/gi, '$1\n$2');
+    
+    // ============== Text 相关处理 ==============
+    result = result.replace(/(.)(Text\s*\d+)\s*([A-Z])/gi, '$1\n$2\n$3');
+    result = result.replace(/(.)(Text\s*\d+\b)(?=[\s\n])/gi, '$1\n$2');
+    
+    // ============== 【答案】断句 ==============
+    // 题号.【答案】 或 题号【答案】 或 【题号】【答案】 前换行
+    // 支持格式：1.【答案】  1【答案】  【1】【答案】  (46)【答案】
+    result = result.replace(/(^|[^\d】\)])(?:(\d{1,2})\s*[.．]?\s*|【\d{1,2}】\s*|\(\d{2}\)\s*)【答案】/gm, '$1\n$2【答案】');
+    
+    // 【答案】后面如果跟了选项字母且没有换行，保证【解析】前有换行
+    // （这步其实不需要，【解析】单独处理）
+    
+    // ============== 【解析】断句 ==============
+    // 【解析】前换行（如果前面不是行首）
+    result = result.replace(/([^\n])【解析】/g, '$1\n【解析】');
+    
+    // ============== 【试题解析】/【参考译文】/【参考范文】/【翻译思路】断句 ==============
+    const answerTags = ['【试题解析】', '【参考译文】', '【参考范文】', '【翻译思路】', '【答案速查】', '【文章分析】', '【语篇分析】'];
+    answerTags.forEach(tag => {
+        const re = new RegExp('([^\\n])' + tag.replace(/[【】]/g, c => '\\' + c), 'g');
+        result = result.replace(re, '$1\n' + tag);
+    });
+    
+    // ============== Writing 部分断句 ==============
+    result = result.replace(/(Section\s+III\s+Writing\b)/i, '$1\n');
+    
+    // ============== 月测特有 ==============
+    // 月测答案的语法/词汇题，题号和【答案】在同一行，上面的【答案】规则已经处理了
+    
+    return result;
+}
+
+// ========== 阅读批量导入 ==========
+function toggleBatchImport(type) {
+    const body = document.getElementById(type + '-batch-body');
+    const icon = body.previousElementSibling.querySelector('.toggle-icon');
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        body.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
+// 按 Text 1-4 拆分整段 Part A 文本
+function splitReadingTexts(text) {
+    if (!text || !text.trim()) return [];
+    
+    // 先做一次智能断句
+    const fixed = smartFixLineBreaks(text);
+    const lines = fixed.split('\n').map(l => l.trim()).filter(l => l);
+    
+    const texts = [];
+    let currentStart = -1;
+    let currentNum = 0;
+    
+    // 找所有 Text 标记行
+    const textPositions = [];
+    for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(/^Text\s*([1-4])\b/i);
+        if (m) {
+            textPositions.push({ idx: i, num: parseInt(m[1]) });
+        }
+    }
+    
+    // 按 Text 边界切分
+    for (let t = 0; t < textPositions.length; t++) {
+        const start = textPositions[t].idx;
+        const end = t < textPositions.length - 1 ? textPositions[t + 1].idx : lines.length;
+        const num = textPositions[t].num;
+        // Text N 本身的行排除，从下一行开始
+        const contentLines = lines.slice(start + 1, end);
+        texts.push({
+            text_num: num,
+            lines: contentLines,
+            raw_text: contentLines.join('\n')
+        });
+    }
+    
+    return texts;
+}
+
+// 从一篇阅读的文本中拆分文章和题目
+function splitReadingArticleAndQuestions(textLines) {
+    const articleLines = [];
+    const questionLines = [];
+    let foundFirstQuestion = false;
+    
+    for (let i = 0; i < textLines.length; i++) {
+        const line = textLines[i];
+        // 第一个数字题号（21-40 之间的两位数）
+        const qMatch = line.match(/^(\d{2})\s*[.．]/);
+        if (!foundFirstQuestion && qMatch) {
+            const qnum = parseInt(qMatch[1]);
+            if (qnum >= 21 && qnum <= 40) {
+                foundFirstQuestion = true;
+                questionLines.push(line);
+                continue;
+            }
+        }
+        
+        if (foundFirstQuestion) {
+            questionLines.push(line);
+        } else {
+            articleLines.push(line);
+        }
+    }
+    
+    return {
+        article: articleLines.join('\n').trim(),
+        questions: questionLines.join('\n').trim()
+    };
+}
+
+// 从答案解析文本中拆分每篇阅读的答案
+function splitReadingAnswerTexts(answerText) {
+    if (!answerText || !answerText.trim()) return {};
+    
+    const fixed = smartFixAnswerLineBreaks(answerText);
+    const result = {};
+    
+    // 用 Parser 的 parseAnswerText 统一解析
+    try {
+        const parsed = Parser.parseAnswerText(fixed);
+        if (parsed.reading) {
+            for (const qnum in parsed.reading) {
+                // 21-25 → Text1, 26-30 → Text2, 31-35 → Text3, 36-40 → Text4
+                const n = parseInt(qnum);
+                let textIdx;
+                if (n >= 21 && n <= 25) textIdx = 0;
+                else if (n >= 26 && n <= 30) textIdx = 1;
+                else if (n >= 31 && n <= 35) textIdx = 2;
+                else if (n >= 36 && n <= 40) textIdx = 3;
+                else continue;
+                
+                if (!result[textIdx]) result[textIdx] = {};
+                result[textIdx][qnum] = parsed.reading[qnum];
+            }
+        }
+    } catch (e) {
+        console.warn('答案解析失败:', e);
+    }
+    
+    // 转成每题一行的格式：题号|答案|解析
+    const formatted = {};
+    for (let textIdx = 0; textIdx < 4; textIdx++) {
+        if (!result[textIdx]) continue;
+        const qnums = Object.keys(result[textIdx]).map(Number).sort((a, b) => a - b);
+        const lines = [];
+        qnums.forEach(n => {
+            const item = result[textIdx][n];
+            const ans = item.answer || '';
+            const expl = item.explanation || '';
+            if (expl) {
+                lines.push(`${n}|${ans}|${expl}`);
+            }
+        });
+        formatted[textIdx] = lines.join('\n');
+    }
+    
+    return formatted;
+}
+
+function batchImportReading() {
+    const examText = document.getElementById('reading-batch-exam').value;
+    const answerText = document.getElementById('reading-batch-answer').value;
+    const statusEl = document.getElementById('reading-batch-status');
+    
+    if (!examText.trim()) {
+        statusEl.style.color = '#ef4444';
+        statusEl.textContent = '请先粘贴试题原文';
+        return;
+    }
+    
+    const texts = splitReadingTexts(examText);
+    if (texts.length === 0) {
+        statusEl.style.color = '#ef4444';
+        statusEl.textContent = '未识别到 Text 1-4 标记，请检查内容格式';
+        return;
+    }
+    
+    // 保存当前Text的内容
+    saveCurrentReadingText();
+    
+    // 解析每篇
+    let importedCount = 0;
+    texts.forEach(t => {
+        const idx = t.text_num - 1;
+        if (idx < 0 || idx > 3) return;
+        
+        const { article, questions } = splitReadingArticleAndQuestions(t.lines);
+        
+        if (!state.examData.reading[idx]) {
+            state.examData.reading[idx] = { text_num: t.text_num, article: '', questions: [] };
+        }
+        state.examData.reading[idx]._raw_article = article;
+        state.examData.reading[idx]._raw_questions = questions;
+        state.examData.reading[idx].article = article;
+        importedCount++;
+    });
+    
+    // 处理答案
+    let answerCount = 0;
+    if (answerText.trim()) {
+        const answerMap = splitReadingAnswerTexts(answerText);
+        for (let i = 0; i < 4; i++) {
+            if (answerMap[i]) {
+                if (!state.examData.reading[i]) {
+                    state.examData.reading[i] = { text_num: i + 1, article: '', questions: [] };
+                }
+                state.examData.reading[i]._raw_answers = answerMap[i];
+                answerCount++;
+            }
+        }
+    }
+    
+    // 刷新当前Text显示
+    loadReadingText(state.currentText);
+    // 触发一次预览更新
+    updatePreview();
+    
+    statusEl.style.color = '#10b981';
+    statusEl.textContent = `✅ 成功拆分 ${importedCount} 篇${answerCount > 0 ? '，' + answerCount + '篇匹配答案' : ''}`;
+}
+
+function clearReadingBatch() {
+    document.getElementById('reading-batch-exam').value = '';
+    document.getElementById('reading-batch-answer').value = '';
+    document.getElementById('reading-batch-status').textContent = '';
+}
+
 function initInputListeners() {
     const setup = (ids, type) => {
         ids.forEach(id => {
@@ -230,7 +656,6 @@ function initInputListeners() {
             }
         });
     };
-
     setup(['cloze-article', 'cloze-options', 'cloze-answer', 'cloze-explanation'], 'cloze');
 
     // 完形答案框：失去焦点时自动清洗空格换行，强制连写
@@ -258,136 +683,83 @@ function initInputListeners() {
     setup(['yuece-trans-sentences', 'yuece-trans-translation', 'yuece-trans-analysis'], 'yuece-translation');
 
     // 粘贴自动转换：从Word/网页粘贴时，自动把 <u>下划线</u> 转成 __下划线__ 标记
-    const pasteIds = [
-        // 整卷导入
-        'exam-text', 'answer-text',
-        'yuece-exam-text', 'yuece-answer-text',
-        // 月测题型
-        'grammar-questions', 'grammar-answers',
-        'vocab-part1-questions', 'vocab-part1-answers',
-        'vocab-part2-questions', 'vocab-part2-answers',
-        'yuece-cloze-article', 'yuece-cloze-options',
-        'yuece-cloze-answer', 'yuece-cloze-explanation',
-        'yuece-trans-sentences', 'yuece-trans-translation', 'yuece-trans-analysis',
-        // 真题题型
-        'cloze-article', 'cloze-options', 'cloze-answer', 'cloze-explanation',
-        'reading-article', 'reading-questions', 'reading-answers',
-        'partb-options', 'partb-article', 'partb-answers',
-        'translation-article', 'translation-sentences', 'translation-trans', 'translation-analysis',
-        'yinger-source', 'yinger-translation', 'yinger-analysis',
-    ];
+        const pasteIds = [
+            // 整卷导入
+            'exam-text', 'answer-text',
+            'yuece-exam-text', 'yuece-answer-text',
+            // 月测题型
+            'grammar-questions', 'grammar-answers',
+            'vocab-part1-questions', 'vocab-part1-answers',
+            'vocab-part2-questions', 'vocab-part2-answers',
+            'yuece-cloze-article', 'yuece-cloze-options',
+            'yuece-cloze-answer', 'yuece-cloze-explanation',
+            'yuece-trans-sentences', 'yuece-trans-translation', 'yuece-trans-analysis',
+            // 真题题型
+            'cloze-article', 'cloze-options', 'cloze-answer', 'cloze-explanation',
+            'reading-article', 'reading-questions', 'reading-answers',
+            'partb-options', 'partb-article', 'partb-answers',
+            'translation-article', 'translation-sentences', 'translation-trans', 'translation-analysis',
+            'yinger-source', 'yinger-translation', 'yinger-analysis',
+        ];
+            // 所有输入框统一用HTML转换（保留下划线/加粗标记）
+    
+    ;
     pasteIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('paste', function(e) {
-                const html = (e.clipboardData || window.clipboardData).getData('text/html');
-                if (!html) return; // 纯文本粘贴走默认
-                e.preventDefault();
-                const text = htmlToMarkedText(html);
-                
-                // 完形文章框：自动拆分文章和选项（粘贴内容含选项行时）
-                if (id === 'cloze-article' || id === 'yuece-cloze-article') {
-                    const { article, options } = splitClozeArticleAndOptions(text);
-                    if (options) {
-                        this.value = article;
-                        const optId = id === 'cloze-article' ? 'cloze-options' : 'yuece-cloze-options';
-                        const optEl = document.getElementById(optId);
-                        if (optEl) {
-                            optEl.value = options;
-                            optEl.dispatchEvent(new Event('input'));
+            const el = document.getElementById(id);
+            if (el) {
+                // 粘贴转换：HTML -> __下划线__/ **加粗** 标记
+                el.addEventListener('paste', function(e) {
+                    const html = (e.clipboardData || window.clipboardData).getData('text/html');
+                    const plainText = (e.clipboardData || window.clipboardData).getData('text/plain');
+                    
+                    // HTML 和纯文本都没有就跳过
+                    if (!html && !plainText) return;
+                    
+                    e.preventDefault();
+                    let text = html ? htmlToMarkedText(html) : plainText;
+                    
+                    // 完形文章框：先智能断句，再自动拆分文章和选项
+                    if (id === 'cloze-article' || id === 'yuece-cloze-article') {
+                        // 从Word粘贴常是连写的，先做一次智能断句
+                        const fixedText = smartFixLineBreaks(text);
+                        const { article, options } = splitClozeArticleAndOptions(fixedText);
+                        if (options) {
+                            this.value = article;
+                            const optId = id === 'cloze-article' ? 'cloze-options' : 'yuece-cloze-options';
+                            const optEl = document.getElementById(optId);
+                            if (optEl) {
+                                optEl.value = options;
+                                optEl.dispatchEvent(new Event('input'));
+                            }
+                            this.setSelectionRange(article.length, article.length);
+                            this.dispatchEvent(new Event('input'));
+                            return;
                         }
-                        // 光标放末尾
-                        this.setSelectionRange(article.length, article.length);
-                        this.dispatchEvent(new Event('input'));
-                        return;
                     }
-                }
                 
-                // 在光标位置插入
-                const start = this.selectionStart;
-                const end = this.selectionEnd;
-                const before = this.value.substring(0, start);
-                const after = this.value.substring(end);
-                this.value = before + text + after;
-                // 恢复光标位置
-                const newPos = start + text.length;
-                this.setSelectionRange(newPos, newPos);
-                // 触发更新
-                this.dispatchEvent(new Event('input'));
-            });
-        }
-    });
-
-    // 拆分完形文章和选项：检测到选项行返回 {article, options}，否则返回 {article: text, options: ''}
-    function splitClozeArticleAndOptions(text) {
-        // 先尝试按行匹配（标准格式）
-        const lines = text.split('\n');
-        const optionLines = [];
-        const articleLines = [];
-        let foundOptions = false;
-        // 选项行格式：数字 A.xxx B.xxx C.xxx D.xxx 或 数字. [A]xxx [B]xxx
-        const optLinePattern = /^\s*\d+\s*[.．]?\s*(?:[A-Da-d][.．\)]|\[[A-Da-d]\])\s*\S/;
-
-        for (let i = 0; i < lines.length; i++) {
-            const trimmed = lines[i].trim();
-            if (!trimmed) {
-                if (foundOptions) {
-                    optionLines.push('');
-                } else {
-                    articleLines.push('');
-                }
-                continue;
+                    const start = this.selectionStart;
+                    const end = this.selectionEnd;
+                    const before = this.value.substring(0, start);
+                    const after = this.value.substring(end);
+                    this.value = before + text + after;
+                    const newPos = start + text.length;
+                    this.setSelectionRange(newPos, newPos);
+                    this.dispatchEvent(new Event('input'));
+                });
+                // 快捷键：Ctrl+U 下划线，Ctrl+B 加粗
+                el.addEventListener('keydown', function(e) {
+                    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u') {
+                        e.preventDefault();
+                        wrapSelection(this, '__', '__');
+                    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+                        e.preventDefault();
+                        wrapSelection(this, '**', '**');
+                    }
+                });
             }
-            if (optLinePattern.test(trimmed)) {
-                foundOptions = true;
-                optionLines.push(trimmed);
-            } else if (foundOptions) {
-                optionLines.push(lines[i]);
-            } else {
-                articleLines.push(lines[i]);
-            }
-        }
-
-        if (foundOptions) {
-            while (articleLines.length > 0 && articleLines[articleLines.length - 1].trim() === '') articleLines.pop();
-            while (optionLines.length > 0 && optionLines[optionLines.length - 1].trim() === '') optionLines.pop();
-            return { article: articleLines.join('\n'), options: optionLines.join('\n') };
-        }
-
-        // 再尝试连写格式：文章末尾紧跟 1. [A]... 2. [A]... 这样的选项
-        // 匹配第一个 "数字. [字母]" 或 "数字 字母." 的位置
-        const inlinePattern = /(\d+)\s*[.．]?\s*(?:\[[A-Da-d]\]|[A-Da-d][.．\)])\s*\S/;
-        // 从后往前找第20题附近，或从前往后找第1题
-        let match = text.match(inlinePattern);
-        if (match && match.index > 50) { // 文章至少50个字符才合理
-            const articlePart = text.substring(0, match.index).trim();
-            const optionsPart = text.substring(match.index).trim();
-            // 把选项拆成每行一题：在 数字. [字母] 前面换行
-            const formattedOptions = optionsPart
-                .replace(/(\d+)\s*[.．]?\s*(?=\[[A-Da-d]\]|[A-Da-d][.．\)])/g, '\n$1. ')
-                .trim();
-            return { article: articlePart, options: formattedOptions };
-        }
-
-        return { article: text, options: '' };
-    }
-
-    // 快捷键：Ctrl+U 加下划线、Ctrl+B 加粗
-    pasteIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('keydown', function(e) {
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u') {
-                    e.preventDefault();
-                    wrapSelection(this, '__', '__');
-                } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
-                    e.preventDefault();
-                    wrapSelection(this, '**', '**');
-                }
-            });
-        }
-    });
+        });
 }
+
 
 // 给 textarea 中选中的文字包上前缀后缀
 function wrapSelection(textarea, prefix, suffix) {
@@ -817,7 +1189,7 @@ function formatReadingLocal() {
         const qnum = q.qnum;
         const ansData = answers[qnum] || {};
 
-        html += `<p>【${idx + 1}】【单选题】${qnum}. ${Formatter.applyMarksHtml(q.stem)}</p>`;
+        html += `<p>【${idx + 1}】${qnum}. ${Formatter.applyMarksHtml(q.stem)}</p>`;
 
         q.optionOrder.forEach(letter => {
             html += `<p>${letter}. ${Formatter.applyMarksHtml(q.options[letter] || '')}</p>`;
@@ -837,7 +1209,6 @@ function formatReadingLocal() {
 
     return html;
 }
-
 function parseReadingQuestions(text) {
     const lines = text.split('\n');
     const questions = [];
@@ -853,22 +1224,60 @@ function parseReadingQuestions(text) {
             const qnum = parseInt(qMatch[1]);
             if (qnum >= 21 && qnum <= 40) {
                 if (currentQ) questions.push(currentQ);
-                currentQ = { qnum, stem: qMatch[2], options: {}, optionOrder: [] };
-                collectingOptions = false;
+                let stem = qMatch[2];
+                currentQ = { qnum, stem: '', options: {}, optionOrder: [] };
+                
+                // 检查题干里是否已经包含了选项（同一行里有 [A]...[B]... 格式）
+                const inlineOptMatch = stem.match(/^(.*?)(?=\s*\[A\]\s*)/i);
+                if (inlineOptMatch) {
+                    // 有内联选项，提取题干和选项
+                    currentQ.stem = inlineOptMatch[1].trim();
+                    const optionsPart = stem.substring(inlineOptMatch[0].length);
+                    // 用正则匹配 [A]xxx[B]xxx[C]xxx[D]xxx 格式
+                    const optRegex = /\[([A-Da-d])\]\s*([^\[]+?)(?=\s*\[[A-Da-d]\]\s*|$)/g;
+                    let om;
+                    while ((om = optRegex.exec(optionsPart)) !== null) {
+                        const letter = om[1].toUpperCase();
+                        currentQ.options[letter] = om[2].trim();
+                        currentQ.optionOrder.push(letter);
+                    }
+                    collectingOptions = currentQ.optionOrder.length > 0;
+                } else {
+                    currentQ.stem = stem;
+                    collectingOptions = false;
+                }
                 return;
             }
         }
 
         if (!currentQ) return;
 
-        const optMatch = line.match(/^([A-D])\s*[.．\]]\s*(.*)/);
+        const optMatch = line.match(/^\[?([A-D])\]?\s*[.．\]]?\s*(.*)/);
         if (optMatch) {
             const letter = optMatch[1].toUpperCase();
             if (letter >= 'A' && letter <= 'D') {
-                currentQ.options[letter] = optMatch[2];
-                currentQ.optionOrder.push(letter);
-                collectingOptions = true;
-                return;
+                // 确保是真正的选项行：方括号格式 或 字母+句号格式，避免把题干里的大写字母误当选项
+                const bracketMatch = line.match(/^\[([A-D])\]\s*(.*)/);
+                const dotMatch = line.match(/^([A-D])\s*[.．]\s*(.*)/);
+                const parenMatch = line.match(/^\(([A-D])\)\s*(.*)/);
+                let realLetter = null;
+                let realContent = '';
+                if (bracketMatch) {
+                    realLetter = bracketMatch[1].toUpperCase();
+                    realContent = bracketMatch[2];
+                } else if (dotMatch) {
+                    realLetter = dotMatch[1].toUpperCase();
+                    realContent = dotMatch[2];
+                } else if (parenMatch) {
+                    realLetter = parenMatch[1].toUpperCase();
+                    realContent = parenMatch[2];
+                }
+                if (realLetter) {
+                    currentQ.options[realLetter] = realContent;
+                    currentQ.optionOrder.push(realLetter);
+                    collectingOptions = true;
+                    return;
+                }
             }
         }
 
@@ -1044,11 +1453,11 @@ function formatTranslationYingyi() {
     let articleHtml = article;
     sentences.forEach(s => {
         if (s.text && articleHtml.includes(s.text)) {
-            articleHtml = articleHtml.replaceAll(s.text, `__UNDERLINE_START__${s.text}__UNDERLINE_END__`);
+            articleHtml = articleHtml.replaceAll(s.text, `{{U_START}}${s.text}{{U_END}}`);
         }
     });
     articleHtml = Formatter.applyMarksHtml(articleHtml);
-    articleHtml = articleHtml.replace(/__UNDERLINE_START__/g, '<u>').replace(/__UNDERLINE_END__/g, '</u>');
+    articleHtml = articleHtml.replace(/\{\{U_START\}\}/g, '<u>').replace(/\{\{U_END\}\}/g, '</u>');
 
     articleHtml.split('\n').forEach(line => {
         html += line.trim() ? `<p>${line}</p>` : '<p>&nbsp;</p>';
@@ -1241,13 +1650,22 @@ function formatGrammarLocal() {
     const questions = parseGrammarQuestionsLocal(questionsText);
     const answers = parseChoiceAnswersLocal(answersText, 1, 5);
 
-    let html = '<div class="section-title">1、【单选题】【语法题】</div>';
+    const isYuece = state.mode === 'yuece';
+    let html = '';
+    if (!isYuece) {
+        html = '<div class="section-title">1、【单选题】【语法题】</div>';
+    }
 
     questions.forEach((q, idx) => {
         const qnum = q.qnum;
         const ansData = answers[qnum] || {};
 
-        html += `<p>【${idx + 1}】【单选题】${qnum}. ${Formatter.applyMarksHtml(q.stem)}</p>`;
+        if (isYuece) {
+            html += `<div class="section-title">1、【单选题】【语法题】</div>`;
+            html += `<p>${Formatter.applyMarksHtml(q.stem)}</p>`;
+        } else {
+            html += `<p>【${idx + 1}】【单选题】${qnum}. ${Formatter.applyMarksHtml(q.stem)}</p>`;
+        }
 
         q.optionOrder.forEach(letter => {
             html += `<p>${letter}. ${Formatter.applyMarksHtml(q.options[letter] || '')}</p>`;
@@ -1267,7 +1685,6 @@ function formatGrammarLocal() {
 
     return html;
 }
-
 function parseGrammarQuestionsLocal(text) {
     const lines = text.split('\n');
     const questions = [];
@@ -1317,12 +1734,13 @@ function parseGrammarQuestionsLocal(text) {
 // ========== 词汇题本地格式化（两部分合并显示） ==========
 function formatVocabLocal() {
     const parts = [
-        { key: 'part1', label: '词义替换', sectionNum: 2, minQ: 6, maxQ: 15,
+        { key: 'part1', label: '同义替换', sectionNum: 2, minQ: 6, maxQ: 15,
           qId: 'vocab-part1-questions', aId: 'vocab-part1-answers' },
         { key: 'part2', label: '选词填空', sectionNum: 3, minQ: 16, maxQ: 25,
           qId: 'vocab-part2-questions', aId: 'vocab-part2-answers' },
     ];
 
+    const isYuece = state.mode === 'yuece';
     let html = '';
 
     parts.forEach(part => {
@@ -1332,13 +1750,20 @@ function formatVocabLocal() {
         const questions = parseVocabQuestionsLocal(questionsText, part.key);
         const answers = parseChoiceAnswersLocal(answersText, part.minQ, part.maxQ);
 
-        html += `<div class="section-title">${part.sectionNum}、【单选题】【${part.label}】</div>`;
+        if (!isYuece) {
+            html += `<div class="section-title">${part.sectionNum}、【单选题】【${part.label}】</div>`;
+        }
 
         questions.forEach((q, idx) => {
             const qnum = q.qnum;
             const ansData = answers[qnum] || {};
 
-            html += `<p>【${idx + 1}】【单选题】${qnum}. ${Formatter.applyMarksHtml(q.stem)}</p>`;
+            if (isYuece) {
+                html += `<div class="section-title">1、【单选题】【${part.label}】</div>`;
+                html += `<p>${Formatter.applyMarksHtml(q.stem)}</p>`;
+            } else {
+                html += `<p>【${idx + 1}】【单选题】${qnum}. ${Formatter.applyMarksHtml(q.stem)}</p>`;
+            }
 
             q.optionOrder.forEach(letter => {
                 html += `<p>${letter}. ${Formatter.applyMarksHtml(q.options[letter] || '')}</p>`;
@@ -1359,7 +1784,6 @@ function formatVocabLocal() {
 
     return html;
 }
-
 function parseVocabQuestionsLocal(text, part) {
     part = part || 'part1';
     const minQ = part === 'part1' ? 6 : 16;
@@ -1506,7 +1930,7 @@ function formatYueceClozeLocal() {
     const answer = document.getElementById('yuece-cloze-answer').value || '';
     const explText = document.getElementById('yuece-cloze-explanation').value || '';
 
-    let html = '<div class="section-title">4、【完形填空】【完形填空】</div><br>';
+    let html = '<div class="section-title">1、【完形填空】【完形填空】</div><br>';
 
     // 文章
     let articleHtml = Formatter.addClozeUnderlineHtml(article);
@@ -1530,8 +1954,13 @@ function formatYueceClozeLocal() {
     html += '<p>解：</p>';
 
     const explanations = parseYueceClozeExplanations(explText);
-    explanations.forEach((expl, idx) => {
-        if (expl) html += `<p>【${idx + 1}】${Formatter.applyMarksHtml(expl)}</p>`;
+    // 月测完形解析序号从1开始重排（按数组顺序，不是原题号）
+    let explDisplayIdx = 0;
+    explanations.forEach((expl, origIdx) => {
+        if (expl) {
+            explDisplayIdx++;
+            html += `<p>【${explDisplayIdx}】${Formatter.applyMarksHtml(expl)}</p>`;
+        }
     });
 
     return html;
@@ -1615,14 +2044,15 @@ function formatYueceTranslationLocal() {
         analysises = parseLineKeyValue(analysisText);
     }
 
-    let html = '<div class="section-title">5、【复合题】【翻译】</div>';
+    let html = '';
 
     sentences.forEach((sent, idx) => {
         const qnum = sent.qnum;
         const trans = translations[qnum] || '';
         const analysis = analysises[qnum] || '';
 
-        html += `<p>【${idx + 1}】【复合题】(${qnum}) ${Formatter.applyMarksHtml(sent.text)}</p>`;
+        html += `<div class="section-title">1、【解答题】【翻译】</div>`;
+        html += `<p>【1】【解答题】(${qnum}) ${Formatter.applyMarksHtml(sent.text)}</p>`;
 
         html += '<p>答：</p>';
         if (trans) {
@@ -1902,14 +2332,14 @@ function parseFullExam(mode) {
 
     try {
         // 直接使用前端 Parser 解析
-        const examResult = Parser.parseExamText(examText);
+        const examResult = Parser.parseExamText(smartFixLineBreaks(examText));
 
         let answerResult = {
             cloze: {}, reading: {}, partb: {}, translation: {},
             writing_a: {}, writing_b: {},
         };
         if (answerText.trim()) {
-            answerResult = Parser.parseAnswerText(answerText);
+            answerResult = Parser.parseAnswerText(smartFixAnswerLineBreaks(answerText));
         }
 
         fillExamData(examResult, answerResult);
@@ -1945,14 +2375,14 @@ function parseYueceFullExam() {
     statusEl.className = 'parse-status';
 
     try {
-        const examResult = Parser.parseYueceExamText(examText);
+        const examResult = Parser.parseYueceExamText(smartFixLineBreaks(examText));
 
         let answerResult = {
             grammar: {}, vocab_part1: {}, vocab_part2: {},
             cloze: {}, translation: {},
         };
         if (answerText.trim()) {
-            answerResult = Parser.parseYueceAnswerText(answerText);
+            answerResult = Parser.parseYueceAnswerText(smartFixAnswerLineBreaks(answerText));
         }
 
         fillYueceExamData(examResult, answerResult);

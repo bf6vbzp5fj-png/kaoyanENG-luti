@@ -31,8 +31,7 @@
 
         <!-- 标签页导航（真题模式） -->
         <nav class="tabs zhenti-tabs" role="tablist">
-            <button class="tab-btn active" data-tab="import-zhenti">📥 整卷导入</button>
-            <button class="tab-btn" data-tab="cloze">1️⃣ 完形填空</button>
+            <button class="tab-btn active" data-tab="cloze">1️⃣ 完形填空</button>
             <button class="tab-btn" data-tab="reading">2️⃣ 阅读理解</button>
             <button class="tab-btn" data-tab="partb">3️⃣ 新题型</button>
             <button class="tab-btn" data-tab="translation">4️⃣ 翻译</button>
@@ -48,35 +47,6 @@
             <button class="tab-btn" data-tab="yuece-cloze">3️⃣ 完形填空</button>
             <button class="tab-btn" data-tab="yuece-translation">4️⃣ 翻译</button>
         </nav>
-
-        <!-- ========== 整卷导入（真题模式） ========== -->
-        <div class="tab-content active" id="tab-import-zhenti">
-            <div class="import-page">
-                <div class="import-section card">
-                    <div class="section-header">
-                        <h2>📋 试题原文</h2>
-                        <button class="btn btn-secondary btn-sm" onclick="normalizePunct('exam-text', 'english')">🔧 规范英文标点</button>
-                    </div>
-                    <textarea id="exam-text" placeholder="请粘贴整卷试题文本，包含：&#10;Section I Use of English&#10;Section II Reading Comprehension&#10;Part A / Text 1-4&#10;Part B&#10;Part C（翻译）&#10;Section III Writing&#10;Part A / Part B"></textarea>
-                </div>
-                <div class="import-section card">
-                    <div class="section-header">
-                        <h2>📝 答案解析</h2>
-                        <button class="btn btn-secondary btn-sm" onclick="normalizePunct('answer-text', 'chinese')">🔧 规范中文标点</button>
-                    </div>
-                    <textarea id="answer-text" placeholder="请粘贴答案解析文本，包含：&#10;各题型的答案和解析&#10;【试题解析】【答案】【解析】等标记&#10;写作部分的【参考范文】【参考译文】"></textarea>
-                </div>
-                <div class="import-actions">
-                    <button class="btn btn-primary btn-lg" id="btn-parse" onclick="parseFullExam('zhenti')">🚀 智能拆分</button>
-                    <button class="btn btn-secondary" id="btn-clear-import" onclick="clearImport('zhenti')">🗑️ 清空</button>
-                    <div class="parse-status" id="parse-status"></div>
-                </div>
-                <div class="import-actions">
-                    <button class="btn btn-success" id="btn-export-full" onclick="exportFullPaper('zhenti')">📄 导出整卷Word</button>
-                </div>
-                <div class="parse-stats card" id="parse-stats"></div>
-            </div>
-        </div>
 
         <!-- ========== 整卷导入（月测模式） ========== -->
         <div class="tab-content" id="tab-import-yuece">
@@ -108,7 +78,7 @@
         </div>
 
         <!-- ========== 完形填空（真题+月测共用） ========== -->
-        <div class="tab-content" id="tab-cloze">
+        <div class="tab-content active" id="tab-cloze">
             <div class="edit-layout">
                 <div class="edit-panel card">
                     <div class="panel-header">
@@ -162,6 +132,31 @@
                     <button class="text-btn" data-text="3">Text 4</button>
                 </div>
             </div>
+
+            <!-- 批量导入4篇 -->
+            <div class="card batch-import-card">
+                <div class="batch-import-header" onclick="toggleBatchImport('reading')">
+                    <h3>📥 批量导入 Part A（Text 1-4）</h3>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="batch-import-body" id="reading-batch-body" style="display:none">
+                    <div class="batch-hint">粘贴整套 Part A 的试题和答案解析，自动拆分为 Text 1-4 并填入各篇编辑框。<br>支持从 Word 直接复制粘贴（自动识别 Text 1/2/3/4 标题）。</div>
+                    <div class="field-group">
+                        <label>试题原文（包含 Text 1-4）</label>
+                        <textarea id="reading-batch-exam" rows="8" placeholder="粘贴 Part A 整段内容，包含 Text 1/2/3/4 的文章和题目..."></textarea>
+                    </div>
+                    <div class="field-group">
+                        <label>参考答案与解析（可选）</label>
+                        <textarea id="reading-batch-answer" rows="6" placeholder="粘贴 Part A 答案解析（可选）..."></textarea>
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-primary" onclick="batchImportReading()">🚀 一键拆分并填入</button>
+                        <button class="btn btn-secondary" onclick="clearReadingBatch()">清空</button>
+                        <span id="reading-batch-status" class="batch-status"></span>
+                    </div>
+                </div>
+            </div>
+
             <div class="edit-layout">
                 <div class="edit-panel card">
                     <div class="panel-header">
@@ -579,7 +574,7 @@
 
     <!-- 页脚 -->
     <footer class="footer">
-        <p>考研英语录题格式转换工具 <span>v1.2.1</span> · 纯前端版</p>
+        <p>考研英语录题格式转换工具 <span>v1.2.2</span> · 纯前端版</p>
     </footer>
 
     <div class="toast" id="toast"></div>

@@ -557,12 +557,14 @@ const DocxGen = (function() {
     }
 
     // ========== 语法题（月测） ==========
-    function buildGrammar(children, data, answers, sectionNum) {
+    function buildGrammar(children, data, answers, sectionNum, isYuece) {
         sectionNum = sectionNum || 1;
         answers = answers || {};
         const questions = data.questions || [];
 
-        addHeading(children, `${sectionNum}、【复合题】【语法题】`);
+        if (!isYuece) {
+            addHeading(children, `${sectionNum}、【复合题】【语法题】`);
+        }
 
         questions.forEach((q, idx) => {
             const qnum = q.qnum || 0;
@@ -574,7 +576,11 @@ const DocxGen = (function() {
 
             // 子题标题
             const titlePara = new Paragraph({});
-            titlePara.addChildElement(new TextRun({ text: `【${idx + 1}】【单选题】${qnum}. `, font: 'SimSun' }));
+            if (isYuece) {
+                titlePara.addChildElement(new TextRun({ text: '1、【单选题】【语法题】', bold: true, font: 'SimSun' }));
+            } else {
+                titlePara.addChildElement(new TextRun({ text: `【${idx + 1}】【单选题】${qnum}. `, font: 'SimSun' }));
+            }
             addMarkedText(titlePara, stem);
             children.push(titlePara);
 
@@ -603,16 +609,17 @@ const DocxGen = (function() {
             children.push(new Paragraph({}));
         });
     }
-
     // ========== 词汇题（月测） ==========
-    function buildVocab(children, data, answers, sectionNum, partLabel) {
+    function buildVocab(children, data, answers, sectionNum, partLabel, isYuece) {
         sectionNum = sectionNum || 2;
         answers = answers || {};
         partLabel = partLabel || 'part1';
         const questions = data.questions || [];
 
-        const category = partLabel === 'part2' ? '选词填空' : '词义替换';
-        addHeading(children, `${sectionNum}、【复合题】【词汇题-${category}】`);
+        const category = partLabel === 'part2' ? '选词填空' : '同义替换';
+        if (!isYuece) {
+            addHeading(children, `${sectionNum}、【复合题】【词汇题-${category}】`);
+        }
 
         questions.forEach((q, idx) => {
             const qnum = q.qnum || 0;
@@ -624,7 +631,11 @@ const DocxGen = (function() {
 
             // 子题标题
             const titlePara = new Paragraph({});
-            titlePara.addChildElement(new TextRun({ text: `【${idx + 1}】【单选题】${qnum}. `, font: 'SimSun' }));
+            if (isYuece) {
+                titlePara.addChildElement(new TextRun({ text: '1、【单选题】【' + category + '】', bold: true, font: 'SimSun' }));
+            } else {
+                titlePara.addChildElement(new TextRun({ text: `【${idx + 1}】【单选题】${qnum}. `, font: 'SimSun' }));
+            }
             addMarkedText(titlePara, stem);
             children.push(titlePara);
 
@@ -653,13 +664,12 @@ const DocxGen = (function() {
             children.push(new Paragraph({}));
         });
     }
-
     // ========== 月测完形填空 ==========
     function buildYueceCloze(children, data, answers, sectionNum) {
         sectionNum = sectionNum || 3;
         answers = answers || {};
 
-        addHeading(children, `${sectionNum}、【完形填空】【完形填空】`);
+        addHeading(children, '1、【完形填空】【完形填空】');
 
         // 文章
         const article = data.article || '';
@@ -723,8 +733,6 @@ const DocxGen = (function() {
         answers = answers || {};
         const sentences = data.sentences || [];
 
-        addHeading(children, `${sectionNum}、【复合题】【翻译】`);
-
         sentences.forEach((sent, idx) => {
             const qnum = sent.qnum || 0;
             const sentText = sent.text || '';
@@ -732,9 +740,12 @@ const DocxGen = (function() {
             const translation = ansData.translation || '';
             const analysis = ansData.analysis || '';
 
+            // 每道题独立大题标题
+            addHeading(children, '1、【解答题】【翻译】');
+
             // 子题
             const para = new Paragraph({});
-            para.addChildElement(new TextRun({ text: `【${idx + 1}】【解答题】(${qnum}) `, font: 'SimSun' }));
+            para.addChildElement(new TextRun({ text: `【1】【解答题】(${qnum}) `, font: 'SimSun' }));
             addMarkedText(para, sentText);
             children.push(para);
 
@@ -817,7 +828,7 @@ const DocxGen = (function() {
 
     async function generateGrammar(data, answers, filename) {
         const children = [];
-        buildGrammar(children, data, answers, 1);
+        buildGrammar(children, data, answers, 1, true);
         const doc = createDocument(children);
         await downloadDoc(doc, filename || '语法题.docx');
     }
@@ -826,14 +837,14 @@ const DocxGen = (function() {
         const children = [];
         let sectionNum = 2;
         if (data1 && data1.questions && data1.questions.length > 0) {
-            buildVocab(children, data1, answers1 || {}, sectionNum, 'part1');
+            buildVocab(children, data1, answers1 || {}, sectionNum, 'part1', true);
             sectionNum++;
             if (data2 && data2.questions && data2.questions.length > 0) {
                 addPageBreak(children);
             }
         }
         if (data2 && data2.questions && data2.questions.length > 0) {
-            buildVocab(children, data2, answers2 || {}, sectionNum, 'part2');
+            buildVocab(children, data2, answers2 || {}, sectionNum, 'part2', true);
         }
         const doc = createDocument(children);
         const name = '词汇题-月测.docx';
@@ -863,21 +874,21 @@ const DocxGen = (function() {
 
         // 语法题
         if (examData.grammar && examData.grammar.questions && examData.grammar.questions.length > 0) {
-            buildGrammar(allChildren, examData.grammar, answerData.grammar || {}, sectionNum);
+            buildGrammar(allChildren, examData.grammar, answerData.grammar || {}, sectionNum, true);
             sectionNum++;
             addPageBreak(allChildren);
         }
 
         // 词汇题 Part 1
         if (examData.vocab_part1 && examData.vocab_part1.questions && examData.vocab_part1.questions.length > 0) {
-            buildVocab(allChildren, examData.vocab_part1, answerData.vocab_part1 || {}, sectionNum, 'part1');
+            buildVocab(allChildren, examData.vocab_part1, answerData.vocab_part1 || {}, sectionNum, 'part1', true);
             sectionNum++;
             addPageBreak(allChildren);
         }
 
         // 词汇题 Part 2
         if (examData.vocab_part2 && examData.vocab_part2.questions && examData.vocab_part2.questions.length > 0) {
-            buildVocab(allChildren, examData.vocab_part2, answerData.vocab_part2 || {}, sectionNum, 'part2');
+            buildVocab(allChildren, examData.vocab_part2, answerData.vocab_part2 || {}, sectionNum, 'part2', true);
             sectionNum++;
             addPageBreak(allChildren);
         }

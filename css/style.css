@@ -545,6 +545,59 @@ body {
     border-color: #3b82f6;
 }
 
+/* ========== 批量导入 ========== */
+.batch-import-card {
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.batch-import-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 0;
+}
+
+.batch-import-header h3 {
+    margin: 0;
+    font-size: 15px;
+    color: #334155;
+}
+
+.toggle-icon {
+    font-size: 12px;
+    color: #94a3b8;
+    transition: transform 0.2s;
+}
+
+.batch-import-body {
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+    margin-top: 12px;
+}
+
+.batch-hint {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 12px;
+    line-height: 1.6;
+}
+
+.batch-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.batch-status {
+    font-size: 13px;
+    color: #10b981;
+    font-weight: 500;
+}
+
 /* ========== 按钮 ========== */
 .btn {
     padding: 9px 18px;
